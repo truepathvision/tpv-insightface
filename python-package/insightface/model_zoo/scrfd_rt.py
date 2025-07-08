@@ -51,7 +51,7 @@ class SCRFD_TRT:
     def _init_vars(self):
         self.input_mean = 127.5
         self.input_std = 128.0
-        self.input_size = (self.input_shape[2], self.input_shape[1])
+        self.input_size = (self.input_shape[3], self.input_shape[2])
         self.fmc = 5
         self._feat_stride_fpn = [8, 16, 32, 64, 128]
         self._num_anchors = 1
