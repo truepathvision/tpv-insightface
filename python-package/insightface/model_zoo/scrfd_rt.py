@@ -57,8 +57,8 @@ class SCRFD_TRT:
         self.fmc = 5
         self._feat_stride_fpn = [8, 16, 32, 64, 128]
         self._num_anchors = 1
-        self.use_kps = True if len(self.outputs) == 15 else False
-    
+        self.use_kps = (len(self.outputs) == self.fmc * 3)  # True if 15 outputs, else False
+ 
     def _resize_input(self, img, input_size):
         im_ratio = float(img.shape[0]) / img.shape[1]
         model_ratio = float(input_size[1]) / input_size[0]
@@ -112,7 +112,9 @@ class SCRFD_TRT:
         for idx, stride in enumerate(self._feat_stride_fpn):
             scores = net_outs[idx].reshape(-1)
             bbox_preds = net_outs[idx + self.fmc] * stride
-            kps_preds = net_outs[idx + self.fmc * 2] * stride
+            
+            if self.use_kps:
+                kps_preds = net_outs[idx + self.fmc * 2] * stride
 
             height = input_height // stride
             width = input_width // stride
@@ -139,11 +141,11 @@ class SCRFD_TRT:
             scores_list.append(pos_scores)
             bboxes_list.append(pos_bboxes)
 
-            kpss = distance2kps(anchor_centers, kps_preds).reshape(kps_preds.shape[0], -1, 2)
-            pos_kpss = kpss[pos_inds]
-            kpss_list.append(pos_kpss)
-
-        return scores_list, bboxes_list, kpss_list
+            if self.use_kps:
+                kpss = distance2kps(anchor_centers, kps_preds).reshape(kps_preds.shape[0], -1, 2)
+                pos_kpss = kpss[pos_inds]
+                kpss_list.append(pos_kpss)
+        return scores_list, bboxes_list
 
 
     def infer(self, blob):
@@ -178,15 +180,27 @@ class SCRFD_TRT:
         scores = np.vstack(scores_list).ravel()
         order = scores.argsort()[::-1]
         bboxes = np.vstack(bboxes_list) / det_scale
-        pre_det = np.hstack((bboxes, scores[:, None]))[order]
+        pre_det = np.hstack((bboxes, scores[:, None])).astype(np.float32, copy=False)
+        pre_det = pre_det[order, :]
         keep = self.nms(pre_det)
-        det = pre_det[keep]
+        det = pre_det[keep, :]
         kpss = np.vstack(kpss_list)[order][keep] / det_scale if self.use_kps else None
 
         if max_num > 0 and det.shape[0] > max_num:
             det, kpss = self._limit_max(det, kpss, img.shape[:2], max_num)
 
-        return det, kpss
+        results = []
+        for i in range(det.shape[0]):
+            face_dict = {
+                'bbox': det[i, 0:4],
+                'det_score': det[i, 4],
+            }
+            if self.use_kps and kpss is not None:
+                face_dict['kps'] = kpss[i]
+            results.append(face_dict)
+
+        return results
+ 
 
     def nms(self, dets):
         thresh = self.nms_thresh
