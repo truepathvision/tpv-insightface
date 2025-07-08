@@ -53,13 +53,13 @@ class SCRFD_TRT:
         self.center_cache = {}
 
     def preprocess(self, img):
-        input_size = self.input_size
+        input_size = (640, 640)  # or read this from self.input_shape if you stored it properly
         blob = cv2.dnn.blobFromImage(
             img, 1.0 / self.input_std, input_size,
             (self.input_mean, self.input_mean, self.input_mean),
             swapRB=True
         )
-        return blob
+        return blob 
 
     def infer(self, blob):
         input_host, input_device = self.inputs[0]
