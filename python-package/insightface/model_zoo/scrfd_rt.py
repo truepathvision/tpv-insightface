@@ -36,10 +36,14 @@ class SCRFD_TRT:
             name = self.engine.get_tensor_name(i)
             shape = self.engine.get_tensor_shape(name)
             dtype = trt.nptype(self.engine.get_tensor_dtype(name))
-            size = trt.volume(shape)
-            host_mem = cuda.pagelocked_empty(size, dtype)
-            device_mem = cuda.mem_alloc(host_mem.nbytes)
-
+            if -1 in shape:
+                size = None
+                host_mem = None
+                device_mem = None
+            else:
+                size = trt.volume(shape)
+                host_mem = cuda.pagelocked_empty(size, dtype)
+                device_mem = cuda.mem_alloc(host_mem.nbytes)
             if self.engine.get_tensor_mode(name) == trt.TensorIOMode.INPUT:
                 self.input_name = name
                 self.input_shape = shape
@@ -157,12 +161,22 @@ class SCRFD_TRT:
 
 
     def infer(self, blob):
-        input_name, host_mem, device_mem = self.inputs[0]
-        print(f"[Infer] host_mem.shape: {host_mem.shape}, blob.shape: {blob.shape}")
+        #input_name, host_mem, device_mem = self.inputs[0]
+        #print(f"[Infer] host_mem.shape: {host_mem.shape}, blob.shape: {blob.shape}")
+        
+        input_name, _, _ = self.inputs[0]
+        input_shape = blob.shape
+        size = blob.size
+        dtype = blob.dtype
+
+        host_mem = cuda.pagelocked_empty(size, dtype)
+        device_mem = cuda.mem_alloc(host_mem.nbytes)
         np.copyto(host_mem, blob.ravel())
         cuda.memcpy_htod_async(device_mem, host_mem, self.stream)
+
+        self.context.set_input_shape(input_name, input_shape)
         self.context.set_tensor_address(input_name, int(device_mem))
-        self.context.set_input_shape(input_name, blob.shape)
+
         output_list = []
         for name, host_mem, device_mem in self.outputs:
             self.context.set_tensor_address(name, int(device_mem))
