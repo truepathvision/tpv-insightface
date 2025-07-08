@@ -101,7 +101,8 @@ class SCRFD_TRT:
 
     def forward(self, img, threshold):
         scores_list, bboxes_list, kpss_list = [], [], []
-        blob = self.preprocess(img)
+        resized_img, _ = self._resize_input(img, self.input_size)
+        blob = self.preprocess(resized_img)
         net_outs = self.infer(blob)
 
         input_height, input_width = blob.shape[2], blob.shape[3]
