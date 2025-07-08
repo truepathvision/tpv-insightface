@@ -26,17 +26,19 @@ class SCRFD_TRT:
         self.stream = cuda.Stream()
 
         for binding in self.engine:
-            shape = self.engine.get_binding_shape(binding)
-            dtype = trt.nptype(self.engine.get_binding_dtype(binding))
-            size = trt.volume(shape) * self.engine.max_batch_size
+            shape = self.engine.get_tensor_shape(binding)
+            dtype = trt.nptype(self.engine.get_tensor_dtype(binding))
+            size = trt.volume(shape)
             host_mem = cuda.pagelocked_empty(size, dtype)
             device_mem = cuda.mem_alloc(host_mem.nbytes)
             self.bindings.append(int(device_mem))
-            if self.engine.binding_is_input(binding):
+
+            if self.engine.get_tensor_mode(binding) == trt.TensorIOMode.INPUT:
                 self.input_shape = shape
                 self.inputs.append((host_mem, device_mem))
             else:
                 self.outputs.append((host_mem, device_mem))
+ 
 
     def _init_vars(self):
         self.input_mean = 127.5
@@ -70,7 +72,7 @@ class SCRFD_TRT:
             cuda.memcpy_dtoh_async(output_host, output_device, self.stream)
 
         self.stream.synchronize()
-        return [out[0].reshape(self.engine.get_binding_shape(i+1)) for i, out in enumerate(self.outputs)]
+        return [out[0].reshape(self.engine.get_tensor_shape(binding)) for binding, out in zip(self.engine, self.outputs)]
 
     def forward(self, img, threshold):
         scores_list, bboxes_list, kpss_list = [], [], []
