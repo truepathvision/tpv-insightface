@@ -124,6 +124,8 @@ class SCRFD_TRT:
             anchor_centers = self.center_cache[key]
             pos_inds = np.where(scores >= threshold)[0]
             pos_scores = scores[pos_inds]
+            print(f"[DEBUG] bbox_preds shape before reshape: {bbox_preds.shape}")
+
             bboxes = distance2bbox(anchor_centers, bbox_preds)
             pos_bboxes = bboxes[pos_inds]
             scores_list.append(pos_scores)
