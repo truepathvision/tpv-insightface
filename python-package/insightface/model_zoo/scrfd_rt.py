@@ -22,22 +22,20 @@ class SCRFD_TRT:
     def _allocate_buffers(self):
         self.inputs = []
         self.outputs = []
-        self.bindings = []
         self.stream = cuda.Stream()
 
-        for binding in self.engine:
-            shape = self.engine.get_tensor_shape(binding)
-            dtype = trt.nptype(self.engine.get_tensor_dtype(binding))
+        for i in range(self.engine.num_io_tensors):
+            name = self.engine.get_tensor_name(i)
+            shape = self.engine.get_tensor_shape(name)
+            dtype = trt.nptype(self.engine.get_tensor_dtype(name))
             size = trt.volume(shape)
             host_mem = cuda.pagelocked_empty(size, dtype)
             device_mem = cuda.mem_alloc(host_mem.nbytes)
-            self.bindings.append(int(device_mem))
-
-            if self.engine.get_tensor_mode(binding) == trt.TensorIOMode.INPUT:
-                self.input_shape = shape
+            if self.engine.get_tensor_mode(name) == trt.TensorIOMode.INPUT:
                 self.inputs.append((host_mem, device_mem))
             else:
                 self.outputs.append((host_mem, device_mem))
+ 
  
 
     def _init_vars(self):
@@ -66,24 +64,34 @@ class SCRFD_TRT:
         np.copyto(input_host, blob.ravel())
         cuda.memcpy_htod_async(input_device, input_host, self.stream)
 
-        self.context.set_tensor_address(self.engine[0], int(input_device))
+    # Set input address
+        input_name = self.engine.get_tensor_name(0)
+        self.context.set_tensor_address(input_name, int(input_device))
 
-        for binding, (host_mem, device_mem) in zip(self.engine, self.outputs):
-            if self.engine.get_tensor_mode(binding) == trt.TensorIOMode.OUTPUT:
-                self.context.set_tensor_address(binding, int(device_mem))
+    # Set output addresses
+        output_list = []
+        for i, (host_mem, device_mem) in enumerate(self.outputs):
+            output_index = self.engine.num_input_tensors + i
+            output_name = self.engine.get_tensor_name(output_index)
+            self.context.set_tensor_address(output_name, int(device_mem))
+            output_list.append((output_name, host_mem))  # Save for reshaping
 
+    # Run inference
         self.context.execute_async_v3(self.stream.handle)
 
-
-        for output_host, output_device in self.outputs:
-            cuda.memcpy_dtoh_async(output_host, output_device, self.stream)
+    # Copy outputs back
+        for _, device_mem in self.outputs:
+            cuda.memcpy_dtoh_async(host_mem, device_mem, self.stream)
 
         self.stream.synchronize()
 
-        return [
-            out[0].reshape(self.engine.get_tensor_shape(binding))
-            for binding, out in zip(self.engine, self.outputs)
-        ]
+    # Reshape and return outputs
+        outputs = []
+        for name, host_mem in output_list:
+            shape = self.engine.get_tensor_shape(name)
+            outputs.append(host_mem.reshape(shape))
+        return outputs
+ 
  
 
     def forward(self, img, threshold):
