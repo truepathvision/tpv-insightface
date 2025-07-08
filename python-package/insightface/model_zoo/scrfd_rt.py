@@ -47,6 +47,8 @@ class SCRFD_TRT:
             else:
                 self.outputs.append((name, host_mem, device_mem))
                 self.outputs.sort(key=lambda x: x[0])
+            print(f"[ALLOC] {name}: shape={shape} size={size} dtype={dtype}")
+
 
     def _init_vars(self):
         self.input_mean = 127.5
