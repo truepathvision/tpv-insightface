@@ -107,7 +107,10 @@ class SCRFD_TRT:
 
         for idx, stride in enumerate(self._feat_stride_fpn):
             scores = net_outs[idx][0]
+
             bbox_preds = net_outs[idx + self.fmc][0] * stride
+            print(f"bbox_preds shape: {bbox_preds.shape}")
+
             if self.use_kps:
                 kps_preds = net_outs[idx + self.fmc * 2][0] * stride
 
