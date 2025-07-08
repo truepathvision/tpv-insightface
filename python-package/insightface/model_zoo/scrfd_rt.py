@@ -28,6 +28,7 @@ class SCRFD_TRT:
             self.engine = self.runtime.deserialize_cuda_engine(f.read())
         self.context = self.engine.create_execution_context()
 
+    
     def _allocate_buffers(self):
         self.inputs = []
         self.outputs = []
@@ -37,22 +38,16 @@ class SCRFD_TRT:
             name = self.engine.get_tensor_name(i)
             shape = self.engine.get_tensor_shape(name)
             dtype = trt.nptype(self.engine.get_tensor_dtype(name))
-            if -1 in shape:
-                size = None
-                host_mem = None
-                device_mem = None
-            else:
-                size = trt.volume(shape)
-                host_mem = cuda.pagelocked_empty(size, dtype)
-                device_mem = cuda.mem_alloc(host_mem.nbytes)
+
             if self.engine.get_tensor_mode(name) == trt.TensorIOMode.INPUT:
                 self.input_name = name
                 self.input_shape = shape
-                self.inputs.append((name, host_mem, device_mem))
+                self.inputs.append((name, None, None))  # Delay alloc
             else:
-                self.outputs.append((name, host_mem, device_mem))
-                self.outputs.sort(key=lambda x: x[0])
-            print(f"[ALLOC] {name}: shape={shape} size={size} dtype={dtype}")
+                self.outputs.append((name, None, None))  # Delay alloc
+
+        self.outputs.sort(key=lambda x: x[0])
+
 
 
     def _init_vars(self):
@@ -173,38 +168,48 @@ class SCRFD_TRT:
 
 
     def infer(self, blob):
-        #input_name, host_mem, device_mem = self.inputs[0]
-        #print(f"[Infer] host_mem.shape: {host_mem.shape}, blob.shape: {blob.shape}")
-        
-        input_name, _, _ = self.inputs[0]
+        input_name = self.input_name
         input_shape = blob.shape
         size = blob.size
         dtype = blob.dtype
 
-        host_mem = cuda.pagelocked_empty(size, dtype)
-        device_mem = cuda.mem_alloc(host_mem.nbytes)
-        np.copyto(host_mem, blob.ravel())
-        cuda.memcpy_htod_async(device_mem, host_mem, self.stream)
+    # Allocate input memory
+        host_input = cuda.pagelocked_empty(size, dtype)
+        device_input = cuda.mem_alloc(host_input.nbytes)
+        np.copyto(host_input, blob.ravel())
+        cuda.memcpy_htod_async(device_input, host_input, self.stream)
 
         self.context.set_input_shape(input_name, input_shape)
-        self.context.set_tensor_address(input_name, int(device_mem))
+        self.context.set_tensor_address(input_name, int(device_input))
 
         output_list = []
-        for name, host_mem, device_mem in self.outputs:
-            self.context.set_tensor_address(name, int(device_mem))
-            output_list.append((name, host_mem))
+        reshaped_outputs = []
 
+        for name, _, _ in self.outputs:
+            shape = self.context.get_tensor_shape(name)  # dynamic shape
+            dtype = trt.nptype(self.engine.get_tensor_dtype(name))
+            size = np.prod(shape)
+
+            host_output = cuda.pagelocked_empty(size, dtype)
+            device_output = cuda.mem_alloc(host_output.nbytes)
+            self.context.set_tensor_address(name, int(device_output))
+
+            output_list.append((name, host_output, device_output, shape))
+
+    # Run inference
         self.context.execute_async_v3(self.stream.handle)
 
-        for name, host_mem, device_mem in self.outputs:
-            cuda.memcpy_dtoh_async(host_mem, device_mem, self.stream)
+    # Copy outputs back
+        for name, host_output, device_output, _ in output_list:
+            cuda.memcpy_dtoh_async(host_output, device_output, self.stream)
+
         self.stream.synchronize()
 
-        outputs = []
-        for name, host_mem in output_list:
-            shape = self.engine.get_tensor_shape(name)
-            outputs.append(host_mem.reshape(shape))
-        return outputs
+        for name, host_output, device_output, shape in output_list:
+            reshaped_outputs.append(host_output.reshape(shape))
+
+        return reshaped_outputs
+ 
 
     def detect(self, img, input_size=None, max_num=0):
         h, w = img.shape[:2]
