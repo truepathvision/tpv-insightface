@@ -65,27 +65,24 @@ class SCRFD_TRT:
     
     def infer(self, blob):
         _, input_host, input_device = self.inputs[0]
-
         np.copyto(input_host, blob.ravel())
         cuda.memcpy_htod_async(input_device, input_host, self.stream)
 
     # Set input address
-        input_name = self.engine.get_tensor_name(0)
+        input_name = self.inputs[0][0]
         self.context.set_tensor_address(input_name, int(input_device))
 
     # Set output addresses
         output_list = []
-        for i, (_, host_mem, device_mem) in enumerate(self.outputs):
-            output_index = self.engine.num_input_tensors + i
-            output_name = self.engine.get_tensor_name(output_index)
-            self.context.set_tensor_address(output_name, int(device_mem))
-            output_list.append((output_name, host_mem))  # Save for reshaping
+        for name, host_mem, device_mem in self.outputs:
+            self.context.set_tensor_address(name, int(device_mem))
+            output_list.append((name, host_mem))
 
     # Run inference
         self.context.execute_async_v3(self.stream.handle)
 
     # Copy outputs back
-        for _,host_mem, device_mem in self.outputs:
+        for _, host_mem, device_mem in self.outputs:
             cuda.memcpy_dtoh_async(host_mem, device_mem, self.stream)
 
         self.stream.synchronize()
@@ -96,6 +93,7 @@ class SCRFD_TRT:
             shape = self.engine.get_tensor_shape(name)
             outputs.append(host_mem.reshape(shape))
         return outputs
+ 
  
  
 
