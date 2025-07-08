@@ -72,19 +72,30 @@ class SCRFD_TRT:
 
  
     def _resize_input(self, img, input_size):
-        im_ratio = float(img.shape[0]) / img.shape[1]
-        model_ratio = float(input_size[1]) / input_size[0]
+        h, w = img.shape[:2]
+        target_w, target_h = input_size
+
+        im_ratio = h / w
+        model_ratio = target_h / target_w
+
         if im_ratio > model_ratio:
-            new_height = input_size[1]
-            new_width = int(new_height / im_ratio)
+            new_h = target_h
+            new_w = int(w * target_h / h)
         else:
-            new_width = input_size[0]
-            new_height = int(new_width * im_ratio)
-        det_scale = float(new_height) / img.shape[0]
-        resized_img = cv2.resize(img, (new_width, new_height))
-        det_img = np.zeros((input_size[1], input_size[0], 3), dtype=np.uint8)
-        det_img[:new_height, :new_width, :] = resized_img
-        return det_img, det_scale
+            new_w = target_w
+            new_h = int(h * target_w / w)
+
+        resized_img = cv2.resize(img, (new_w, new_h))
+        det_img = np.zeros((target_h, target_w, 3), dtype=np.uint8)
+
+    # Center the resized image
+        y_offset = (target_h - new_h) // 2
+        x_offset = (target_w - new_w) // 2
+        det_img[y_offset:y_offset + new_h, x_offset:x_offset + new_w, :] = resized_img
+
+        scale_x = new_w / w
+        scale_y = new_h / h
+        return det_img, (scale_x, scale_y)
 
     def _limit_max(self, det, kpss, img_shape, max_num):
         area = (det[:, 2] - det[:, 0]) * (det[:, 3] - det[:, 1])
@@ -196,10 +207,23 @@ class SCRFD_TRT:
         return outputs
 
     def detect(self, img, input_size=None, max_num=0):
-        input_size = self.input_size if input_size is None else input_size
-        #det_img, det_scale = self._resize_input(img, input_size)
-        scores_list, bboxes_list, kpss_list = self.forward(img, self.det_thresh)
+        h, w = img.shape[:2]
 
+    # Set the input size from image if not already set
+        if input_size is None:
+            if w < 240 or h < 240 or w > 1280 or h > 1280:
+                raise ValueError(f"Input image size ({w}, {h}) is outside dynamic shape range [240–1280]")
+        # Must be divisible by 32 to align with SCRFD FPN
+            aligned_w = (w // 32) * 32
+            aligned_h = (h // 32) * 32
+            self.input_size = (aligned_w, aligned_h)
+            print(f"[Auto-set] input_size set to: {self.input_size}")
+        else:
+            self.input_size = input_size
+
+        det_img, det_scale = self._resize_input(img, self.input_size)
+        scores_list, bboxes_list, kpss_list = self.forward(det_img, self.det_thresh)
+        
         scores = np.vstack(scores_list).ravel()
         order = scores.argsort()[::-1]
         bboxes = np.vstack(bboxes_list) / det_scale
