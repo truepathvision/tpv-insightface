@@ -112,12 +112,12 @@ class SCRFD_TRT:
         for idx, stride in enumerate(self._feat_stride_fpn):
             scores = net_outs[idx].reshape(-1)
             bbox_preds = net_outs[idx + self.fmc] * stride
-            if self.use_kps:
-                kps_preds = net_outs[idx + self.fmc * 2] * stride
+            kps_preds = net_outs[idx + self.fmc * 2] * stride
 
             height = input_height // stride
             width = input_width // stride
             key = (height, width, stride)
+            
             if key in self.center_cache:
                 anchor_centers = self.center_cache[key]
             else:
@@ -139,12 +139,11 @@ class SCRFD_TRT:
             scores_list.append(pos_scores)
             bboxes_list.append(pos_bboxes)
 
-            if self.use_kps:
-                kpss = distance2kps(anchor_centers, kps_preds).reshape(kps_preds.shape[0], -1, 2)
-                pos_kpss = kpss[pos_inds]
-                kpss_list.append(pos_kpss)
+            kpss = distance2kps(anchor_centers, kps_preds).reshape(kps_preds.shape[0], -1, 2)
+            pos_kpss = kpss[pos_inds]
+            kpss_list.append(pos_kpss)
 
-        return scores_list, bboxes_list, kpss_list if self.use_kps else None
+        return scores_list, bboxes_list, kpss_list
 
 
     def infer(self, blob):
