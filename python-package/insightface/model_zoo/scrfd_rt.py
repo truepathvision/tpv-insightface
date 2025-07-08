@@ -189,17 +189,15 @@ class SCRFD_TRT:
             shape = self.context.get_tensor_shape(name)  # dynamic shape
             dtype = trt.nptype(self.engine.get_tensor_dtype(name))
             size = np.prod(shape)
+            host_output = cuda.pagelocked_empty((size,), dtype)
 
-            host_output = cuda.pagelocked_empty(size, dtype)
             device_output = cuda.mem_alloc(host_output.nbytes)
             self.context.set_tensor_address(name, int(device_output))
 
             output_list.append((name, host_output, device_output, shape))
 
-    # Run inference
         self.context.execute_async_v3(self.stream.handle)
 
-    # Copy outputs back
         for name, host_output, device_output, _ in output_list:
             cuda.memcpy_dtoh_async(host_output, device_output, self.stream)
 
