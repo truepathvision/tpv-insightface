@@ -108,32 +108,34 @@ class SCRFD_TRT:
         net_outs = self.infer(blob)
 
         input_height, input_width = blob.shape[2], blob.shape[3]
-        for idx, stride in enumerate(self._feat_stride_fpn):
-            #scores = net_outs[idx][0]
-            #bbox_preds_raw = net_outs[idx + self.fmc]
-            #print(f"[DEBUG] bbox_preds_raw shape: {bbox_preds_raw.shape}")
-            #bbox_preds = bbox_preds_raw.reshape(-1, 4) * stride
-            #if self.use_kps:
-                #kps_preds = net_outs[idx + self.fmc * 2][0] * stride
-            scores = net_outs[idx].reshape(-1)
-            bbox_preds = net_outs[idx + 5].reshape(-1, 4) * stride
-            if self.use_kps:
-                kps_preds = net_outs[idx + 10].reshape(-1, 10) * stride
 
-            height, width = input_height // stride, input_width // stride
+        for idx, stride in enumerate(self._feat_stride_fpn):
+            scores = net_outs[idx].reshape(-1)
+            bbox_preds = net_outs[idx + self.fmc] * stride
+            if self.use_kps:
+                kps_preds = net_outs[idx + self.fmc * 2] * stride
+
+            height = input_height // stride
+            width = input_width // stride
             key = (height, width, stride)
-            if key not in self.center_cache:
+            if key in self.center_cache:
+                anchor_centers = self.center_cache[key]
+            else:
                 anchor_centers = np.stack(np.mgrid[:height, :width][::-1], axis=-1).astype(np.float32)
                 anchor_centers = (anchor_centers * stride).reshape(-1, 2)
-                self.center_cache[key] = anchor_centers
+                if self._num_anchors > 1:
+                    anchor_centers = np.stack([anchor_centers]*self._num_anchors, axis=1).reshape(-1, 2)
+                if len(self.center_cache) < 100:
+                    self.center_cache[key] = anchor_centers
 
-            anchor_centers = self.center_cache[key]
+            assert anchor_centers.shape[0] == bbox_preds.shape[0], \
+                f"[ERROR] anchor_centers {anchor_centers.shape} vs bbox_preds {bbox_preds.shape}"
+
             pos_inds = np.where(scores >= threshold)[0]
             pos_scores = scores[pos_inds]
-            print(f"[DEBUG] bbox_preds shape before reshape: {bbox_preds.shape}")
-
             bboxes = distance2bbox(anchor_centers, bbox_preds)
             pos_bboxes = bboxes[pos_inds]
+
             scores_list.append(pos_scores)
             bboxes_list.append(pos_bboxes)
 
@@ -143,6 +145,7 @@ class SCRFD_TRT:
                 kpss_list.append(pos_kpss)
 
         return scores_list, bboxes_list, kpss_list if self.use_kps else None
+
 
     def infer(self, blob):
         input_name, host_mem, device_mem = self.inputs[0]
