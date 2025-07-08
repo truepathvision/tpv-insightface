@@ -196,8 +196,8 @@ class SCRFD_TRT:
 
     def detect(self, img, input_size=None, max_num=0):
         input_size = self.input_size if input_size is None else input_size
-        det_img, det_scale = self._resize_input(img, input_size)
-        scores_list, bboxes_list, kpss_list = self.forward(det_img, self.det_thresh)
+        #det_img, det_scale = self._resize_input(img, input_size)
+        scores_list, bboxes_list, kpss_list = self.forward(img, self.det_thresh)
 
         scores = np.vstack(scores_list).ravel()
         order = scores.argsort()[::-1]
