@@ -99,6 +99,7 @@ class SCRFD_TRT:
             img, 1.0 / self.input_std, self.input_size,
             (self.input_mean, self.input_mean, self.input_mean), swapRB=True
         )
+        print(f"[Preprocess] blob.shape: {blob.shape}, total elements: {blob.size}")
         return blob
 
     def forward(self, img, threshold):
@@ -137,6 +138,7 @@ class SCRFD_TRT:
 
     def infer(self, blob):
         input_name, host_mem, device_mem = self.inputs[0]
+        print(f"[Infer] host_mem.shape: {host_mem.shape}, blob.shape: {blob.shape}")
         np.copyto(host_mem, blob.ravel())
         cuda.memcpy_htod_async(device_mem, host_mem, self.stream)
         self.context.set_tensor_address(input_name, int(device_mem))
