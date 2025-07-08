@@ -110,7 +110,9 @@ class SCRFD_TRT:
         input_height, input_width = blob.shape[2], blob.shape[3]
         for idx, stride in enumerate(self._feat_stride_fpn):
             scores = net_outs[idx][0]
-            bbox_preds = net_outs[idx + self.fmc][0] * stride
+            bbox_preds_raw = net_outs[idx + self.fmc]
+            print(f"[DEBUG] bbox_preds_raw shape: {bbox_preds_raw.shape}")
+            bbox_preds = bbox_preds_raw.reshape(-1, 4) * stride
             if self.use_kps:
                 kps_preds = net_outs[idx + self.fmc * 2][0] * stride
 
