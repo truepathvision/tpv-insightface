@@ -53,20 +53,19 @@ class SCRFD_TRT:
         self.center_cache = {}
 
     def preprocess(self, img):
-        input_size = (640, 640)  # or read this from self.input_shape if you stored it properly
+        input_size = (640, 640)
         blob = cv2.dnn.blobFromImage(
             img, 1.0 / self.input_std, input_size,
             (self.input_mean, self.input_mean, self.input_mean),
             swapRB=True
         )
-        return blob 
-
+        return blob
     def infer(self, blob):
         input_host, input_device = self.inputs[0]
         np.copyto(input_host, blob.ravel())
         cuda.memcpy_htod_async(input_device, input_host, self.stream)
 
-        self.context.execute_async_v2(bindings=self.bindings, stream_handle=self.stream.handle)
+        self.context.execute_async_v3(bindings=self.bindings, stream_handle=self.stream.handle)
 
         for output_host, output_device in self.outputs:
             cuda.memcpy_dtoh_async(output_host, output_device, self.stream)
