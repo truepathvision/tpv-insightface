@@ -18,6 +18,7 @@ class SCRFD_TRT:
         self.center_cache = {}
         self.nms_thresh = 0.4
         self.det_thresh = 0.5
+        self.input_size = None
         self._load_engine()
         self._allocate_buffers()
         self._init_vars()
@@ -57,7 +58,7 @@ class SCRFD_TRT:
     def _init_vars(self):
         self.input_mean = 127.5
         self.input_std = 128.0
-        self.input_size = (self.input_shape[3], self.input_shape[2])
+       # self.input_size = (self.input_shape[3], self.input_shape[2])
     
         output_count = len(self.outputs)
     
