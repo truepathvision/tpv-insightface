@@ -54,10 +54,17 @@ class SCRFD_TRT:
         self.input_mean = 127.5
         self.input_std = 128.0
         self.input_size = (self.input_shape[3], self.input_shape[2])
-        self.fmc = 5
-        self._feat_stride_fpn = [8, 16, 32, 64, 128]
-        self._num_anchors = 1
-        self.use_kps = (len(self.outputs) == self.fmc * 3)  # True if 15 outputs, else False
+    
+        output_count = len(self.outputs)
+    
+        if output_count == 9:
+            self.fmc = 3
+            self._feat_stride_fpn = [8, 16, 32]
+            self._num_anchors = 2
+            self.use_kps = True
+        else:
+            raise ValueError(f"Unexpected number of outputs: {output_count}")
+
  
     def _resize_input(self, img, input_size):
         im_ratio = float(img.shape[0]) / img.shape[1]
@@ -93,7 +100,8 @@ class SCRFD_TRT:
         self.det_thresh = kwargs.get("det_thresh", self.det_thresh)
         if "input_size" in kwargs:
             self.input_size = kwargs["input_size"]
-
+        assert self.input_size is not None, "Must set input_size for dynamic shape engines."
+    
     def preprocess(self, img):
         blob = cv2.dnn.blobFromImage(
             img, 1.0 / self.input_std, self.input_size,
@@ -154,7 +162,7 @@ class SCRFD_TRT:
         np.copyto(host_mem, blob.ravel())
         cuda.memcpy_htod_async(device_mem, host_mem, self.stream)
         self.context.set_tensor_address(input_name, int(device_mem))
-
+        self.context.set_input_shape(input_name, blob.shape)
         output_list = []
         for name, host_mem, device_mem in self.outputs:
             self.context.set_tensor_address(name, int(device_mem))
