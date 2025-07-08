@@ -85,7 +85,7 @@ class SCRFD_TRT:
         self.context.execute_async_v3(self.stream.handle)
 
     # Copy outputs back
-        for _, device_mem in self.outputs:
+        for _,host_mem, device_mem in self.outputs:
             cuda.memcpy_dtoh_async(host_mem, device_mem, self.stream)
 
         self.stream.synchronize()
