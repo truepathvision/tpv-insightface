@@ -14,6 +14,7 @@ class SCRFD_TRT:
         self._allocate_buffers()
         self._init_vars()
 
+
     def _load_engine(self):
         with open(self.engine_path, "rb") as f, trt.Runtime(self.logger) as runtime:
             self.engine = runtime.deserialize_cuda_engine(f.read())
@@ -31,10 +32,13 @@ class SCRFD_TRT:
             size = trt.volume(shape)
             host_mem = cuda.pagelocked_empty(size, dtype)
             device_mem = cuda.mem_alloc(host_mem.nbytes)
+
             if self.engine.get_tensor_mode(name) == trt.TensorIOMode.INPUT:
-                self.inputs.append((host_mem, device_mem))
+                self.inputs.append((name, host_mem, device_mem))
+                self.input_shape = shape  # Save it here!
             else:
-                self.outputs.append((host_mem, device_mem))
+                self.outputs.append((name, host_mem, device_mem))
+
  
  
 
