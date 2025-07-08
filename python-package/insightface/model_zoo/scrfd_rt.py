@@ -60,18 +60,30 @@ class SCRFD_TRT:
             swapRB=True
         )
         return blob
+    
     def infer(self, blob):
         input_host, input_device = self.inputs[0]
         np.copyto(input_host, blob.ravel())
         cuda.memcpy_htod_async(input_device, input_host, self.stream)
 
-        self.context.execute_async_v3(bindings=self.bindings, stream_handle=self.stream.handle)
+        self.context.set_tensor_address(self.engine[0], int(input_device))
+
+        for binding, (host_mem, device_mem) in zip(self.engine, self.outputs):
+            if self.engine.get_tensor_mode(binding) == trt.TensorIOMode.OUTPUT:
+                self.context.set_tensor_address(binding, int(device_mem))
+
+        self.context.execute_async_v3(self.stream.handle)
 
         for output_host, output_device in self.outputs:
             cuda.memcpy_dtoh_async(output_host, output_device, self.stream)
 
         self.stream.synchronize()
-        return [out[0].reshape(self.engine.get_tensor_shape(binding)) for binding, out in zip(self.engine, self.outputs)]
+
+        return [
+            out[0].reshape(self.engine.get_tensor_shape(binding))
+            for binding, out in zip(self.engine, self.outputs)
+        ]
+ 
 
     def forward(self, img, threshold):
         scores_list, bboxes_list, kpss_list = [], [], []
