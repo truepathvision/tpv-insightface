@@ -112,6 +112,8 @@ class SCRFD_TRT_G:
         self.tensor_names = [self.engine.get_tensor_name(i) for i in range(self.engine.num_io_tensors)]
         self.context.set_optimization_profile_async(self.profile_idx, self.stream)
         self.context.set_input_shape(self.input_name, (1, 3, 640, 640))
+        self._fixed_blob = np.empty((1, 3, *self.input_size), dtype=np.float32)
+
         assert self.context.all_binding_shapes_specified
 
         self.inputs, self.outputs, self.bindings = [], [], []
@@ -155,11 +157,12 @@ class SCRFD_TRT_G:
         return padded, scale
 
     def _preprocess(self, img):
-        return cv2.dnn.blobFromImage(
+        cv2.dnn.blobFromImage(
             img, scalefactor=1 / 128.0, size=self.input_size,
-            mean=(127.5, 127.5, 127.5), swapRB=True
+            mean=(127.5, 127.5, 127.5), swapRB=True, dst=self._fixed_blob
         )
-    
+        self.inputs[0].host = self._fixed_blob
+ 
     def close(self):
         if getattr(self, "_closed", False):
             return
@@ -195,16 +198,14 @@ class SCRFD_TRT_G:
         if resize:
             img, scale = self._resize_pad(img)
         
-        blob = self._preprocess(img)
-
-        self.inputs[0].host = blob
+        self._preprocess(img)
         
         if not self.graph_created:
             cudart.cudaMemcpyAsync(
                 self.inputs[0].device, self.inputs[0].host,
                 self.inputs[0].nbytes, cudart.cudaMemcpyKind.cudaMemcpyHostToDevice, self.stream
             )
-
+            
             cudart.cudaStreamBeginCapture(self.stream, cudart.cudaStreamCaptureMode.cudaStreamCaptureModeGlobal)
 
             self.context.execute_async_v3(stream_handle=self.stream)
@@ -225,15 +226,11 @@ class SCRFD_TRT_G:
             cudart.cudaStreamSynchronize(self.stream)
 
         else:
-            cudart.cudaMemcpyAsync(
-                self.inputs[0].device, self.inputs[0].host,
-                self.inputs[0].nbytes, cudart.cudaMemcpyKind.cudaMemcpyHostToDevice, self.stream
-            )
             cudart.cudaGraphLaunch(self.graph_exec, self.stream)
             cudart.cudaStreamSynchronize(self.stream)
 
         results = [out.host for out in self.outputs]
-        input_shape = (blob.shape[2], blob.shape[3])
+        input_shape = (self._fixed_blob.shape[2], self._fixed_blob.shape[3])
         bboxes, kpss = postprocess_trt_outputs(results, input_shape, threshold=self.threshold)
         bboxes[:, :4] /= scale
         if kpss is not None:
