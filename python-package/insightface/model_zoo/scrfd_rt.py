@@ -99,7 +99,7 @@ class SCRFD_TRT:
         self.threshold = threshold
         self.nms_thresh = nms_thresh
         self.prev_shape = None 
-        self.trt_logger = trt.Logger(trt.Logger.INFO)
+        self.trt_logger = trt.Logger(trt.Logger.WARN)
         self.engine = self._load_engine()
         self.context = self.engine.create_execution_context()
         self._closed = False
