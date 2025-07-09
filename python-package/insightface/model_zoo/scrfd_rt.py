@@ -1,284 +1,234 @@
 import numpy as np
 import cv2
-import os
-import pycuda.driver as cuda
-import pycuda.autoinit
 import tensorrt as trt
-import datetime
+from cuda.bindings import runtime as cudart
 
-from insightface.model_zoo.scrfd import softmax, distance2bbox, distance2kps
+from ..utils.trthelpers import _do_inference_base, HostDeviceMem
+from ..app.common import Face
 
+def distance2bbox(points, distances):
+    x1 = points[:, 0] - distances[:, 0]
+    y1 = points[:, 1] - distances[:, 1]
+    x2 = points[:, 0] + distances[:, 2]
+    y2 = points[:, 1] + distances[:, 3]
+    return np.stack([x1, y1, x2, y2], axis=-1)
 
+def distance2kps(points, distances):
+    landmarks = []
+    for i in range(0, distances.shape[1], 2):
+        px = points[:, 0] + distances[:, i]
+        py = points[:, 1] + distances[:, i + 1]
+        landmarks.append(np.stack([px, py], axis=-1))
+    return np.stack(landmarks, axis=1)
+
+def generate_anchors(h, w, stride, num_anchors=2):
+    shift_x = np.arange(w) * stride
+    shift_y = np.arange(h) * stride
+    shift_x, shift_y = np.meshgrid(shift_x, shift_y)
+    anchor_centers = np.stack((shift_x, shift_y), axis=-1).reshape(-1, 2)
+
+    if num_anchors > 1:
+        anchor_centers = np.repeat(anchor_centers, num_anchors, axis=0)
+
+    return anchor_centers
+
+def postprocess_trt_outputs(results, input_shape, threshold=0.5):
+    strides = [8, 16, 32]
+    fmc = len(strides)
+    
+    input_h, input_w = input_shape
+    all_scores, all_bboxes, all_kps = [], [], []
+
+    for i, stride in enumerate(strides):
+        score = results[i].reshape(-1)
+        bbox = results[i + fmc].reshape(-1, 4) * stride
+        landmark = results[i + fmc * 2].reshape(-1, 10) * stride
+
+        h, w = input_h // stride, input_w // stride
+        anchors = generate_anchors(h, w, stride, num_anchors=2)
+
+        boxes = distance2bbox(anchors, bbox)
+        kps = distance2kps(anchors, landmark)
+
+        inds = np.where(score > threshold)[0]
+        if len(inds) == 0:
+            continue
+
+        all_scores.append(score[inds])
+        all_bboxes.append(boxes[inds])
+        all_kps.append(kps[inds])
+
+    if not all_bboxes:
+        return np.zeros((0, 5)), np.zeros((0, 5, 2))
+
+    scores = np.concatenate(all_scores)
+    bboxes = np.concatenate(all_bboxes)
+    kpss = np.concatenate(all_kps)
+
+    dets = np.hstack((bboxes, scores[:, None]))
+    keep = nms(dets, iou_threshold=0.4)
+    return dets[keep], kpss[keep]
+
+def nms(dets, iou_threshold=0.4):
+    x1, y1, x2, y2, scores = dets[:,0], dets[:,1], dets[:,2], dets[:,3], dets[:,4]
+    areas = (x2 - x1) * (y2 - y1)
+    order = scores.argsort()[::-1]
+
+    keep = []
+    while order.size > 0:
+        i = order[0]
+        keep.append(i)
+        xx1 = np.maximum(x1[i], x1[order[1:]])
+        yy1 = np.maximum(y1[i], y1[order[1:]])
+        xx2 = np.minimum(x2[i], x2[order[1:]])
+        yy2 = np.minimum(y2[i], y2[order[1:]])
+
+        w = np.maximum(0, xx2 - xx1)
+        h = np.maximum(0, yy2 - yy1)
+        inter = w * h
+        ovr = inter / (areas[i] + areas[order[1:]] - inter)
+
+        inds = np.where(ovr <= iou_threshold)[0]
+        order = order[inds + 1]
+    return keep
 
 class SCRFD_TRT:
-    def __init__(self, engine_path):
+    def __init__(self, engine_path, input_size=(640, 640), threshold=0.5, nms_thresh=0.4):
         self.engine_path = engine_path
-        self.logger = trt.Logger(trt.Logger.WARNING)
-        self.runtime = trt.Runtime(self.logger)
-        self.center_cache = {}
-        self.nms_thresh = 0.4
-        self.det_thresh = 0.5
-        self.input_size = None
-        self._load_engine()
-        self._allocate_buffers()
-        self._init_vars()
-
-    def _load_engine(self):
-        with open(self.engine_path, "rb") as f:
-            self.engine = self.runtime.deserialize_cuda_engine(f.read())
+        self.input_size = input_size
+        self.threshold = threshold
+        self.nms_thresh = nms_thresh
+        self.prev_shape = None 
+        self.trt_logger = trt.Logger(trt.Logger.INFO)
+        self.engine = self._load_engine()
         self.context = self.engine.create_execution_context()
+        self._closed = False
+        _, self.stream = cudart.cudaStreamCreate()
+        self.input_name = "input.1"
 
-    
-    def _allocate_buffers(self):
-        self.inputs = []
-        self.outputs = []
-        self.stream = cuda.Stream()
+        self.profile_idx = 0
+        self.tensor_names = [self.engine.get_tensor_name(i) for i in range(self.engine.num_io_tensors)]
+        self.context.set_optimization_profile_async(self.profile_idx, self.stream)
+        self.context.set_input_shape(self.input_name, (1, 3, 640, 640))
+        assert self.context.all_binding_shapes_specified
 
-        for i in range(self.engine.num_io_tensors):
-            name = self.engine.get_tensor_name(i)
-            shape = self.engine.get_tensor_shape(name)
-            dtype = trt.nptype(self.engine.get_tensor_dtype(name))
-
+        self.inputs, self.outputs, self.bindings = [], [], []
+        for name in self.tensor_names:
+            shape = self.context.get_tensor_shape(name)
+            size = trt.volume(shape)
+            dtype = np.dtype(trt.nptype(self.engine.get_tensor_dtype(name)))
+            mem = HostDeviceMem(size, dtype)
+            self.bindings.append(int(mem.device))
             if self.engine.get_tensor_mode(name) == trt.TensorIOMode.INPUT:
-                self.input_name = name
-                self.input_shape = shape
-                self.inputs.append((name, None, None))  # Delay alloc
+                    self.inputs.append(mem)
             else:
-                self.outputs.append((name, None, None))  # Delay alloc
+                self.outputs.append(mem)
 
-        self.outputs.sort(key=lambda x: x[0])
-
-
-
-    def _init_vars(self):
-        self.input_mean = 127.5
-        self.input_std = 128.0
-       # self.input_size = (self.input_shape[3], self.input_shape[2])
+        for i, name in enumerate(self.tensor_names):
+            self.context.set_tensor_address(name, self.bindings[i]) 
     
-        output_count = len(self.outputs)
+    def _load_engine(self):
+        with open(self.engine_path, "rb") as f, trt.Runtime(self.trt_logger) as runtime:
+            return runtime.deserialize_cuda_engine(f.read())
     
-        if output_count == 9:
-            self.fmc = 3
-            self._feat_stride_fpn = [8, 16, 32]
-            self._num_anchors = 2
-            self.use_kps = True
-        else:
-            raise ValueError(f"Unexpected number of outputs: {output_count}")
-
  
-    def _resize_input(self, img, input_size):
+    def _resize_pad(self, img):
         h, w = img.shape[:2]
-        target_w, target_h = input_size
-
-        im_ratio = h / w
+        target_w, target_h = self.input_size
+        img_ratio = h / w
         model_ratio = target_h / target_w
 
-        if im_ratio > model_ratio:
+        if img_ratio > model_ratio:
             new_h = target_h
-            new_w = int(w * target_h / h)
+            new_w = int(new_h / img_ratio)
         else:
             new_w = target_w
-            new_h = int(h * target_w / w)
+            new_h = int(new_w * img_ratio)
 
-        resized_img = cv2.resize(img, (new_w, new_h))
-        det_img = np.zeros((target_h, target_w, 3), dtype=np.uint8)
+        scale = new_h / h  # same as InsightFace's `det_scale`
 
-    # Center the resized image
-        y_offset = (target_h - new_h) // 2
-        x_offset = (target_w - new_w) // 2
-        det_img[y_offset:y_offset + new_h, x_offset:x_offset + new_w, :] = resized_img
+        resized = cv2.resize(img, (new_w, new_h))
+        padded = np.zeros((target_h, target_w, 3), dtype=np.uint8)
+        padded[:new_h, :new_w, :] = resized
+        return padded, scale
 
-        scale_x = new_w / w
-        scale_y = new_h / h
-        return det_img, (scale_x, scale_y)
-
-    def _limit_max(self, det, kpss, img_shape, max_num):
-        area = (det[:, 2] - det[:, 0]) * (det[:, 3] - det[:, 1])
-        img_center = img_shape[0] // 2, img_shape[1] // 2
-        offsets = np.vstack([
-            (det[:, 0] + det[:, 2]) / 2 - img_center[1],
-            (det[:, 1] + det[:, 3]) / 2 - img_center[0]
-        ])
-        offset_dist_squared = np.sum(np.power(offsets, 2.0), 0)
-        values = area - offset_dist_squared * 2.0
-        bindex = np.argsort(values)[::-1][:max_num]
-        det = det[bindex, :]
-        kpss = kpss[bindex, :] if kpss is not None else None
-        return det, kpss
-
-    def prepare(self, ctx_id, **kwargs):
-        self.nms_thresh = kwargs.get("nms_thresh", self.nms_thresh)
-        self.det_thresh = kwargs.get("det_thresh", self.det_thresh)
-        if "input_size" in kwargs:
-            self.input_size = kwargs["input_size"]
-        assert self.input_size is not None, "Must set input_size for dynamic shape engines."
-    
-    def preprocess(self, img):
-        blob = cv2.dnn.blobFromImage(
-            img, 1.0 / self.input_std, self.input_size,
-            (self.input_mean, self.input_mean, self.input_mean), swapRB=True
+    def _preprocess(self, img):
+        return cv2.dnn.blobFromImage(
+            img, scalefactor=1 / 128.0, size=self.input_size,
+            mean=(127.5, 127.5, 127.5), swapRB=True
         )
-        print(f"[Preprocess] blob.shape: {blob.shape}, total elements: {blob.size}")
-        return blob
+    
+    def close(self):
+        if getattr(self, "_closed", False):
+            return
+        self._closed = True
 
-    def forward(self, img, threshold):
-        scores_list, bboxes_list, kpss_list = [], [], []
-        blob = self.preprocess(img)
-        net_outs = self.infer(blob)
+        for mem in self.inputs + self.outputs:
+            try:
+                mem.free()
+            except Exception as e:
+                print(f"[WARN] mem.free failed: {e}")
 
-        input_height, input_width = blob.shape[2], blob.shape[3]
+        self.inputs = []
+        self.outputs = []
+        self.bindings = []
 
-        for idx, stride in enumerate(self._feat_stride_fpn):
-            scores = net_outs[idx].reshape(-1)
-            bbox_preds = net_outs[idx + self.fmc] * stride
-            
-            if self.use_kps:
-                kps_preds = net_outs[idx + self.fmc * 2] * stride
+        try:
+            if self.stream is not None:
+                cudart.cudaStreamSynchronize(self.stream)
+                cudart.cudaStreamDestroy(self.stream)
+                self.stream = None
+        except Exception as e:
+            print(f"[WARN] Failed to destroy stream: {e}")
 
-            height = input_height // stride
-            width = input_width // stride
-            key = (height, width, stride)
-            
-            if key in self.center_cache:
-                anchor_centers = self.center_cache[key]
-            else:
-                anchor_centers = np.stack(np.mgrid[:height, :width][::-1], axis=-1).astype(np.float32)
-                anchor_centers = (anchor_centers * stride).reshape(-1, 2)
-                if self._num_anchors > 1:
-                    anchor_centers = np.stack([anchor_centers]*self._num_anchors, axis=1).reshape(-1, 2)
-                if len(self.center_cache) < 100:
-                    self.center_cache[key] = anchor_centers
+        self.context = None
+        self.engine = None
 
-            assert anchor_centers.shape[0] == bbox_preds.shape[0], \
-                f"[ERROR] anchor_centers {anchor_centers.shape} vs bbox_preds {bbox_preds.shape}"
+    def detect(self, img):
+        resized_img, scale = self._resize_pad(img)
+        blob = self._preprocess(resized_img)
 
-            pos_inds = np.where(scores >= threshold)[0]
-            pos_scores = scores[pos_inds]
-            bboxes = distance2bbox(anchor_centers, bbox_preds)
-            pos_bboxes = bboxes[pos_inds]
+        self.inputs[0].host = blob
+    
+        def execute():
+            self.context.execute_async_v3(stream_handle=self.stream)
 
-            scores_list.append(pos_scores)
-            bboxes_list.append(pos_bboxes)
+        results = _do_inference_base(self.inputs, self.outputs, self.stream, execute)
 
-            if self.use_kps:
-                kpss = distance2kps(anchor_centers, kps_preds).reshape(kps_preds.shape[0], -1, 2)
-                pos_kpss = kpss[pos_inds]
-                kpss_list.append(pos_kpss)
-        return scores_list, bboxes_list
-
-
-    def infer(self, blob):
-        input_name = self.input_name
-        input_shape = blob.shape
-        size = blob.size
-        dtype = blob.dtype
-
-    # Allocate input memory
-        host_input = cuda.pagelocked_empty(size, dtype)
-        device_input = cuda.mem_alloc(host_input.nbytes)
-        np.copyto(host_input, blob.ravel())
-        cuda.memcpy_htod_async(device_input, host_input, self.stream)
-
-        self.context.set_input_shape(input_name, input_shape)
-        self.context.set_tensor_address(input_name, int(device_input))
-
-        output_list = []
-        reshaped_outputs = []
-
-        for name, _, _ in self.outputs:
-            shape = self.context.get_tensor_shape(name)  # dynamic shape
-            dtype = trt.nptype(self.engine.get_tensor_dtype(name))
-            size = np.prod(shape)
-            host_output = cuda.pagelocked_empty((size,), dtype)
-
-            device_output = cuda.mem_alloc(host_output.nbytes)
-            self.context.set_tensor_address(name, int(device_output))
-
-            output_list.append((name, host_output, device_output, shape))
-
-        self.context.execute_async_v3(self.stream.handle)
-
-        for name, host_output, device_output, _ in output_list:
-            cuda.memcpy_dtoh_async(host_output, device_output, self.stream)
-
-        self.stream.synchronize()
-
-        for name, host_output, device_output, shape in output_list:
-            reshaped_outputs.append(host_output.reshape(shape))
-
-        return reshaped_outputs
- 
-
-    def detect(self, img, input_size=None, max_num=0):
-        h, w = img.shape[:2]
-
-    # Set the input size from image if not already set
-        if input_size is None:
-            if w < 240 or h < 240 or w > 1280 or h > 1280:
-                raise ValueError(f"Input image size ({w}, {h}) is outside dynamic shape range [240–1280]")
-        # Must be divisible by 32 to align with SCRFD FPN
-            aligned_w = (w // 32) * 32
-            aligned_h = (h // 32) * 32
-            self.input_size = (aligned_w, aligned_h)
-            print(f"[Auto-set] input_size set to: {self.input_size}")
-        else:
-            self.input_size = input_size
-
-        det_img, det_scale = self._resize_input(img, self.input_size)
-        scores_list, bboxes_list, kpss_list = self.forward(det_img, self.det_thresh)
+        input_shape = (blob.shape[2], blob.shape[3])
+        bboxes, kpss = postprocess_trt_outputs(results, input_shape, threshold=self.threshold)
+        bboxes[:, :4] /= scale
+        if kpss is not None:
+            kpss /= scale
         
-        scores = np.vstack(scores_list).ravel()
-        order = scores.argsort()[::-1]
-        bboxes = np.vstack(bboxes_list) / det_scale
-        pre_det = np.hstack((bboxes, scores[:, None])).astype(np.float32, copy=False)
-        pre_det = pre_det[order, :]
-        keep = self.nms(pre_det)
-        det = pre_det[keep, :]
-        kpss = np.vstack(kpss_list)[order][keep] / det_scale if self.use_kps else None
+        if bboxes.shape[0] == 0:
+            return []
 
-        if max_num > 0 and det.shape[0] > max_num:
-            det, kpss = self._limit_max(det, kpss, img.shape[:2], max_num)
+        ret = []
+        for i in range(bboxes.shape[0]):
+            bbox = bboxes[i, 0:4]
+            det_score = bboxes[i,4]
+            kps = None
+            if kpss is not None:
+                kps = kpss[i]
+            face = Face(bbox=bbox, kps=kps,det_score=det_score)
+            ret.append(face)
 
-        results = []
-        for i in range(det.shape[0]):
-            face_dict = {
-                'bbox': det[i, 0:4],
-                'det_score': det[i, 4],
-            }
-            if self.use_kps and kpss is not None:
-                face_dict['kps'] = kpss[i]
-            results.append(face_dict)
+        return ret
+        
+        
+    def draw(self, img, dets, kpss, color=(0, 255, 0), landmark_color=(0, 0, 255)):
+        img_drawn = img.copy()
+        for box, kps in zip(dets.astype(int), kpss.astype(int)):
+            x1, y1, x2, y2, score = box
+            cv2.rectangle(img_drawn, (x1, y1), (x2, y2), color, 2)
+            for kp in kps:
+                cv2.circle(img_drawn, tuple(kp), 2, landmark_color, -1)
+        return img_drawn
 
-        return results
- 
-
-    def nms(self, dets):
-        thresh = self.nms_thresh
-        x1 = dets[:, 0]
-        y1 = dets[:, 1]
-        x2 = dets[:, 2]
-        y2 = dets[:, 3]
-        scores = dets[:, 4]
-
-        areas = (x2 - x1 + 1) * (y2 - y1 + 1)
-        order = scores.argsort()[::-1]
-
-        keep = []
-        while order.size > 0:
-            i = order[0]
-            keep.append(i)
-            xx1 = np.maximum(x1[i], x1[order[1:]])
-            yy1 = np.maximum(y1[i], y1[order[1:]])
-            xx2 = np.minimum(x2[i], x2[order[1:]])
-            yy2 = np.minimum(y2[i], y2[order[1:]])
-
-            w = np.maximum(0.0, xx2 - xx1 + 1)
-            h = np.maximum(0.0, yy2 - yy1 + 1)
-            inter = w * h
-            ovr = inter / (areas[i] + areas[order[1:]] - inter)
-
-            inds = np.where(ovr <= thresh)[0]
-            order = order[inds + 1]
-
-        return keep
+    def __del__(self):
+        try:
+            self.close()
+        except Exception as e:
+            print(f'[WARN] Error during SCRFD_TRT destructor: {e}')
 
