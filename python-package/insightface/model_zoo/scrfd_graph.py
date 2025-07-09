@@ -3,7 +3,7 @@ import cv2
 import tensorrt as trt
 from cuda.bindings import runtime as cudart
 
-from ..utils.trthelpers import _do_inference_base, HostDeviceMem
+from ..utils.trthelpers import HostDeviceMem, cuda_call
 from ..app.common import Face
 
 def distance2bbox(points, distances):
@@ -92,20 +92,22 @@ def nms(dets, iou_threshold=0.4):
         order = order[inds + 1]
     return keep
 
-class SCRFD_TRT:
+class SCRFD_TRT_G:
     def __init__(self, engine_path, input_size=(640, 640), threshold=0.5, nms_thresh=0.4):
         self.engine_path = engine_path
         self.input_size = input_size
         self.threshold = threshold
         self.nms_thresh = nms_thresh
         self.prev_shape = None 
-        self.trt_logger = trt.Logger(trt.Logger.ERROR)
+        self.trt_logger = trt.Logger(trt.Logger.INFO)
         self.engine = self._load_engine()
         self.context = self.engine.create_execution_context()
         self._closed = False
         _, self.stream = cudart.cudaStreamCreate()
         self.input_name = "input.1"
-
+        self.graph_created = False
+        self.graph_exec = None
+        self.graph = None
         self.profile_idx = 0
         self.tensor_names = [self.engine.get_tensor_name(i) for i in range(self.engine.num_io_tensors)]
         self.context.set_optimization_profile_async(self.profile_idx, self.stream)
@@ -162,6 +164,11 @@ class SCRFD_TRT:
         if getattr(self, "_closed", False):
             return
         self._closed = True
+        
+        if self.graph_exec:
+            cudart.cudaGraphExecDestroy(self.graph_exec)
+        if self.graph:
+            cudart.cudaGraphDestroy(self.graph)
 
         for mem in self.inputs + self.outputs:
             try:
@@ -172,7 +179,7 @@ class SCRFD_TRT:
         self.inputs = []
         self.outputs = []
         self.bindings = []
-
+        
         try:
             if self.stream is not None:
                 cudart.cudaStreamSynchronize(self.stream)
@@ -184,21 +191,52 @@ class SCRFD_TRT:
         self.context = None
         self.engine = None
 
-    def detect(self, img):
-        resized_img, scale = self._resize_pad(img)
-        blob = self._preprocess(resized_img)
+    def detect(self, img, resize=False):
+        if resize:
+            img, scale = self._resize_pad(img)
+        
+        blob = self._preprocess(img)
 
         self.inputs[0].host = blob
-    
-        def execute():
+        
+        if not self.graph_created:
+            cudart.cudaMemcpyAsync(
+                self.inputs[0].device, self.inputs[0].host,
+                self.inputs[0].nbytes, cudart.cudaMemcpyKind.cudaMemcpyHostToDevice, self.stream
+            )
+
+            cudart.cudaStreamBeginCapture(self.stream, cudart.cudaStreamCaptureMode.cudaStreamCaptureModeGlobal)
+
             self.context.execute_async_v3(stream_handle=self.stream)
 
-        results = _do_inference_base(self.inputs, self.outputs, self.stream, execute)
+            for out in self.outputs:
+                cudart.cudaMemcpyAsync(out.host, out.device, out.nbytes,
+                                   cudart.cudaMemcpyKind.cudaMemcpyDeviceToHost, self.stream)
 
+            graph = cuda_call(cudart.cudaStreamEndCapture(self.stream))
+            graph_exec = cuda_call(cudart.cudaGraphInstantiate(graph, 0))
+
+
+            self.graph = graph
+            self.graph_exec = graph_exec
+            self.graph_created = True
+
+            cudart.cudaGraphLaunch(self.graph_exec, self.stream)
+            cudart.cudaStreamSynchronize(self.stream)
+
+        else:
+            cudart.cudaMemcpyAsync(
+                self.inputs[0].device, self.inputs[0].host,
+                self.inputs[0].nbytes, cudart.cudaMemcpyKind.cudaMemcpyHostToDevice, self.stream
+            )
+            cudart.cudaGraphLaunch(self.graph_exec, self.stream)
+            cudart.cudaStreamSynchronize(self.stream)
+
+        results = [out.host for out in self.outputs]
         input_shape = (blob.shape[2], blob.shape[3])
         bboxes, kpss = postprocess_trt_outputs(results, input_shape, threshold=self.threshold)
         bboxes[:, :4] /= scale
-       if kpss is not None:
+        if kpss is not None:
             kpss /= scale
         
         if bboxes.shape[0] == 0:
@@ -215,8 +253,7 @@ class SCRFD_TRT:
             ret.append(face)
 
         return ret
-        
-        
+
     def draw(self, img, dets, kpss, color=(0, 255, 0), landmark_color=(0, 0, 255)):
         img_drawn = img.copy()
         for box, kps in zip(dets.astype(int), kpss.astype(int)):
