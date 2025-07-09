@@ -184,9 +184,11 @@ class SCRFD_TRT:
         self.context = None
         self.engine = None
 
-    def detect(self, img):
-        resized_img, scale = self._resize_pad(img)
-        blob = self._preprocess(resized_img)
+    def detect(self, img, scale=None, resize=False):
+        if resize:
+            img, scale = self._resize_pad(img)
+        
+        blob = self._preprocess(img)
 
         self.inputs[0].host = blob
     
