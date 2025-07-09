@@ -157,10 +157,11 @@ class SCRFD_TRT_G:
         return padded, scale
 
     def _preprocess(self, img):
-        cv2.dnn.blobFromImage(
+        blob = cv2.dnn.blobFromImage(
             img, scalefactor=1 / 128.0, size=self.input_size,
-            mean=(127.5, 127.5, 127.5), swapRB=True, dst=self._fixed_blob
+            mean=(127.5, 127.5, 127.5), swapRB=True
         )
+        np.copyto(self._fixed_blob, blob)
         self.inputs[0].host = self._fixed_blob
  
     def close(self):
