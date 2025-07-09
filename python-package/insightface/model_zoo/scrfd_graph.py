@@ -191,7 +191,7 @@ class SCRFD_TRT_G:
         self.context = None
         self.engine = None
 
-    def detect(self, img, resize=False):
+    def detect(self, img, scale=None, resize=False):
         if resize:
             img, scale = self._resize_pad(img)
         
