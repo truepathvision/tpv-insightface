@@ -99,7 +99,7 @@ class SCRFD_TRT:
         self.threshold = threshold
         self.nms_thresh = nms_thresh
         self.prev_shape = None 
-        self.trt_logger = trt.Logger(trt.Logger.ERROR)
+        self.trt_logger = trt.Logger(trt.Logger.WARNING)
         self.engine = self._load_engine()
         self.context = self.engine.create_execution_context()
         self._closed = False
@@ -198,7 +198,7 @@ class SCRFD_TRT:
         input_shape = (blob.shape[2], blob.shape[3])
         bboxes, kpss = postprocess_trt_outputs(results, input_shape, threshold=self.threshold)
         bboxes[:, :4] /= scale
-       if kpss is not None:
+        if kpss is not None:
             kpss /= scale
         
         if bboxes.shape[0] == 0:
