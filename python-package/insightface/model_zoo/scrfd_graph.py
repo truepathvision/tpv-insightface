@@ -195,20 +195,18 @@ class SCRFD_TRT_G:
         self.context = None
         self.engine = None
 
-    def detect(self, img, scale=None, resize=False):
-        if resize:
-            img, scale = self._resize_pad(img)
-        
-        self._preprocess(img)
-        
+    def detect(self, blob, scale):
+         
+        #self._preprocess(img)
+        np.copyto(self._fixed_blob, blob)
+        self.inputs[0].host = self._fixed_blob
         if not self.graph_created:
+            
+            cudart.cudaStreamBeginCapture(self.stream, cudart.cudaStreamCaptureMode.cudaStreamCaptureModeGlobal)
             cudart.cudaMemcpyAsync(
                 self.inputs[0].device, self.inputs[0].host,
                 self.inputs[0].nbytes, cudart.cudaMemcpyKind.cudaMemcpyHostToDevice, self.stream
             )
-            
-            cudart.cudaStreamBeginCapture(self.stream, cudart.cudaStreamCaptureMode.cudaStreamCaptureModeGlobal)
-
             self.context.execute_async_v3(stream_handle=self.stream)
 
             for out in self.outputs:
