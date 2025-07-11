@@ -12,7 +12,6 @@ class ArcFaceRT:
         self.mean = mean
         self.std = std
         self.profile_idx = profile_idx
-        atexit.register(self._atexit_cleanup)  
         self.trt_logger = trt.Logger(trt.Logger.WARNING)
         self.engine = self._load_engine()
         self.context = self.engine.create_execution_context()
@@ -24,9 +23,11 @@ class ArcFaceRT:
         self._fixed_blobs = {}
         self.tensor_names = [self.input_name, self.output_name]
         self._closed = False
+        self._cleanup_registered = True
+        atexit.register(self._atexit_cleanup)
     
     def _atexit_cleanup(self):
-        if not self._closed:
+        if self._cleanup_registered and not self._closed:
             self.close()
 
     def _load_engine(self):
@@ -107,6 +108,7 @@ class ArcFaceRT:
         if getattr(self, "_closed", False):
             return
         self._closed = True
+        self._cleanup_registered = False
         try:
             for batch_size, entry in self.graph_cache.items():
                 if entry.get('graph_exec') is not None:
