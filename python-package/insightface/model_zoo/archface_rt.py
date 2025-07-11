@@ -68,8 +68,13 @@ class ArcFaceRT:
                                    cudart.cudaMemcpyKind.cudaMemcpyDeviceToHost, self.stream)
             graph = cuda_call(cudart.cudaStreamEndCapture(self.stream))
             graph_exec = cuda_call(cudart.cudaGraphInstantiate(graph, 0))
-            self.graph_cache[batch_size] = (inputs, outputs, graph, graph_exec)
-
+            self.graph_cache[batch_size] = {
+                "inputs": inputs,
+                "outputs": outputs,
+                "bindings": bindings,
+                "graph": graph,
+                "graph_exec": graph_exec
+            }
         inputs, outputs, _, graph_exec = self.graph_cache[batch_size]
             
         np.copyto(inputs[0].host.reshape(blob.shape), blob)
@@ -79,14 +84,14 @@ class ArcFaceRT:
         cudart.cudaGraphLaunch(graph_exec, self.stream)
         cudart.cudaStreamSynchronize(self.stream)
         return outputs[0].host.reshape(batch_size, -1)
-    """
+   
+
     def close(self):
         if getattr(self, "_closed", False):
             return
         self._closed = True
 
-    # Free each cached graph + buffers
-        for batch_size, (inputs, outputs, graph, graph_exec) in self.graph_cache.items():
+        for batch_size, entry in self.graph_cache.items():
             try:
                 if self.stream:
                     cudart.cudaStreamSynchronize(self.stream)
@@ -94,22 +99,21 @@ class ArcFaceRT:
                 print(f"[WARN] Stream sync failed for batch {batch_size}: {e}")
 
             try:
-                if graph_exec:
-                    cudart.cudaGraphExecDestroy(graph_exec)
-                if graph:
-                    cudart.cudaGraphDestroy(graph)
+                if entry["graph_exec"]:
+                    cudart.cudaGraphExecDestroy(entry["graph_exec"])
+                if entry["graph"]:
+                    cudart.cudaGraphDestroy(entry["graph"])
             except Exception as e:
                 print(f"[WARN] Graph destroy failed for batch {batch_size}: {e}")
 
             try:
-                for mem in inputs + outputs:
+                for mem in entry["inputs"] + entry["outputs"]:
                     mem.free()
             except Exception as e:
                 print(f"[WARN] Memory free failed for batch {batch_size}: {e}")
 
         self.graph_cache.clear()
 
-    # Destroy stream
         try:
             if self.stream:
                 cudart.cudaStreamSynchronize(self.stream)
@@ -120,8 +124,7 @@ class ArcFaceRT:
 
         self.context = None
         self.engine = None
- 
-    
+
     
     def __del__(self):
         try:
@@ -129,4 +132,3 @@ class ArcFaceRT:
         except Exception as e:
             print(f"[WARN] ArcFaceTRT destructor: {e}")
     
-    """
