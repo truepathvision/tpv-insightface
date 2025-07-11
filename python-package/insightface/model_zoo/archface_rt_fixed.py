@@ -30,8 +30,10 @@ class ArcFaceRT:
     
 
     def _setup_batch(self, batch_size):
+    # Allocate fixed input blob
         self._fixed_blobs[batch_size] = np.empty((batch_size, 3, *self.input_size), dtype=np.float32)
 
+    # Allocate TRT buffers
         inputs, outputs, bindings = self._allocate_buffers(batch_size)
         fixed_blob = self._fixed_blobs[batch_size]
         np.copyto(inputs[0].host.reshape(fixed_blob.shape), fixed_blob)
@@ -53,6 +55,29 @@ class ArcFaceRT:
             "graph_exec": graph_exec
         }
 
+
+    def _allocate_buffers(self, batch_size):
+        self.context.set_optimization_profile_async(self.profile_idx, self.stream)
+        self.context.set_input_shape(self.input_name, (batch_size, 3, *self.input_size))
+        assert self.context.all_binding_shapes_specified
+
+        inputs, outputs, bindings = [], [], []
+
+        for name in self.tensor_names:
+            shape = self.context.get_tensor_shape(name)
+            size = trt.volume(shape)
+            dtype = np.dtype(trt.nptype(self.engine.get_tensor_dtype(name)))
+            mem = HostDeviceMem(size, dtype)
+            bindings.append(int(mem.device))
+            if self.engine.get_tensor_mode(name) == trt.TensorIOMode.INPUT:
+                inputs.append(mem)
+            else:
+                outputs.append(mem)
+
+        for i, name in enumerate(self.tensor_names):
+            self.context.set_tensor_address(name, bindings[i])
+
+        return inputs, outputs, bindings 
 
     
     def get(self, blob):
