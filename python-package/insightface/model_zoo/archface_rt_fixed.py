@@ -28,7 +28,10 @@ class ArcFaceRT:
     
     def _atexit_cleanup(self):
         if self._cleanup_registered and not self._closed:
-            self.close()
+            try:
+                self.close()
+            except Exception as e:
+                print(f'[WARN] atexit cleanup failed: {e}')
 
     def _load_engine(self):
         with open(self.engine_path, 'rb') as f, trt.Runtime(self.trt_logger) as runtime:
