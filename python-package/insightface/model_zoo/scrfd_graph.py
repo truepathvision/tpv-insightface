@@ -245,8 +245,8 @@ class SCRFD_TRT_G:
             kps = None
             if kpss is not None:
                 kps = kpss[i]
-            face = Face(bbox=bbox, kps=kps,det_score=det_score)
-            ret.append(face)
+            #face = Face(bbox=bbox, kps=kps,det_score=det_score)
+            ret.append((bbox,kps,det_score))
 
         return ret
 
