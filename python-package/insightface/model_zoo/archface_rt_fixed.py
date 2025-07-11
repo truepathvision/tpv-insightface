@@ -31,11 +31,12 @@ class ArcFaceRT:
     
 
     def _setup_batch(self, batch_size):
-        self._fixed_blobs[batch_size] = np.empty((batch_size, 3, *self.input_size), dtype=np.float32)
+        fixed_blob = np.empty((batch_size, 3, *self.input_size), dtype=np.float32)
+        self._fixed_blobs[batch_size] = fixed_blob
 
         inputs, outputs, bindings = self._allocate_buffers(batch_size)
-        inputs[0].host = self._fixed_blobs[batch_size]
-
+        np.copyto(inputs[0].host.reshape(fixed_blob.shape), fixed_blob)
+        
         cudart.cudaStreamBeginCapture(self.stream, cudart.cudaStreamCaptureMode.cudaStreamCaptureModeGlobal)
         cudart.cudaMemcpyAsync(inputs[0].device, inputs[0].host, inputs[0].nbytes,
                            cudart.cudaMemcpyKind.cudaMemcpyHostToDevice, self.stream)
@@ -85,13 +86,12 @@ class ArcFaceRT:
             self._setup_batch(batch_size)
         
         np.copyto(self._fixed_blobs[batch_size], blob)
-        entry = self.graph_cache[batch_size]
-        graph_exec = entry["graph_exec"]
+        np.copyto(self.graph_cache[batch_size]["inputs"][0].host.reshape(blob.shape), blob)
 
-        cudart.cudaGraphLaunch(graph_exec, self.stream)
+        cudart.cudaGraphLaunch(self.graph_cache[batch_size]["graph_exec"], self.stream)
         cudart.cudaStreamSynchronize(self.stream)
-        
-        return entry['outputs'][0].host.reshape(batch_size, -1)
+
+        return self.graph_cache[batch_size]['outputs'][0].host.reshape(batch_size, -1)
 
     def close(self):
         if getattr(self, "_closed", False):
