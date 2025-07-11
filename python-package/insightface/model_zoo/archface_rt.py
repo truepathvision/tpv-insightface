@@ -96,40 +96,19 @@ class ArcFaceRT:
         self._closed = True
 
         for batch_size, entry in self.graph_cache.items():
-            try:
-                if self.stream:
-                    cudart.cudaStreamSynchronize(self.stream)
-            except Exception as e:
-                print(f"[WARN] Stream sync failed for batch {batch_size}: {e}")
-
-            try:
-                if entry["graph_exec"]:
-                    cudart.cudaGraphExecDestroy(entry["graph_exec"])
-                if entry["graph"]:
-                    cudart.cudaGraphDestroy(entry["graph"])
-            except Exception as e:
-                print(f"[WARN] Graph destroy failed for batch {batch_size}: {e}")
-
-            try:
-                for mem in entry["inputs"] + entry["outputs"]:
-                    mem.free()
-            except Exception as e:
-                print(f"[WARN] Memory free failed for batch {batch_size}: {e}")
-
+            if entry.get('graph_exec') is not None:
+                cudart.cudaGraphExecDestroy(entry['graph_exec'])
+            if entry.get('graph') is not None:
+                cudart.cudaGraphDestroy(entry['graph'])
+            for mem in entry['inputs'] + entry['outputs']:
+                mem.free()
         self.graph_cache.clear()
-
-        try:
-            if self.stream:
-                cudart.cudaStreamSynchronize(self.stream)
-                cudart.cudaStreamDestroy(self.stream)
-                self.stream = None
-        except Exception as e:
-            print(f"[WARN] Stream destroy failed: {e}")
-
+        if self.stream is not None:
+            cudart.cudaStreamSynchronize(self.stream)
+            cudart.cudaStreamDestroy(self.stream)
         self.context = None
         self.engine = None
 
-    
     def __del__(self):
         try:
             self.close()
