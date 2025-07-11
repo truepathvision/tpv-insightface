@@ -127,8 +127,9 @@ class ArcFaceRT:
         self.engine = None
 
     def __del__(self):
+        import atexit
         try:
-            self.close()
+            atexit.register(self.close)
         except Exception as e:
             print(f"[WARN] ArcFaceTRT destructor: {e}")
  
