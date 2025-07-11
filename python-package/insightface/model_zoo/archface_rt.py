@@ -1,78 +1,99 @@
 import numpy as np
-import cv2
 import tensorrt as trt
-import pycuda.driver as cuda
-import pycuda.autoinit  # Automatically manages CUDA context
-from ..utils import face_align
+from cuda.bindings import runtime as cudart
 
-class ArcFaceTensorRT:
-    def __init__(self, engine_path):
-        self.logger = trt.Logger(trt.Logger.ERROR)
+from ..utils.trthelpers import HostDeviceMem, cuda_call
+from ..app.common import Face
+
+class ArcFaceRT:
+    def __init__(self, engine_path, input_size=(112,112), mean=127.5, std=127.5, profile_idx=0):
         self.engine_path = engine_path
-
-        with open(engine_path, 'rb') as f, trt.Runtime(self.logger) as runtime:
-            self.engine = runtime.deserialize_cuda_engine(f.read())
-
+        self.input_size = input_size
+        self.mean = mean
+        self.std = std
+        self.profile_idx = profile_idx
+        
+        self.trt_logger = trt.Logger(trt.Logger.WARNING)
+        self.engine = self._load_engine()
         self.context = self.engine.create_execution_context()
+        _, self.stream = cudart.cudaStreamCreate()
 
-        # Bindings
-        self.input_idx = self.engine.get_binding_index('input.1')
-        self.output_idx = self.engine.get_binding_index(self.engine.get_binding_name(1))
+        self.input_name = self.engine.get_tensor_name(0)
+        self.output_name = self.engine.get_tensor_name(1)
+        self.graph_cache = {}
 
-        # Input/Output shapes
-        self.input_shape = self.engine.get_binding_shape(self.input_idx)
-        self.output_shape = self.engine.get_binding_shape(self.output_idx)
+        self.tensor_names = [self.input_name, self.output_name]
+        self._closed = False
 
-        self.input_size = (self.input_shape[3], self.input_shape[2])  # width, height
+    def _load_engine(self):
+        with open(self.engine_path, 'rb') as f, trt.Runtime(self.trt_logger) as runtime:
+            return runtime.describe_cuda_engine(f.read())
 
-        self.input_mean = 127.5
-        self.input_std = 127.5
+    def _allocate_buffers(self, batch_size):
+        self.context.set_optimization_profile_async(self.profile_idx, self.stream)
+        self.context.set_input_shape(self.input_name, (batch_size, 3, *self.input_size))
+        assert self.context.all_binding_shapes_specified
 
-        self.batch_size = self.input_shape[0]
-        self.input_nbytes = np.prod(self.input_shape) * np.float32().nbytes
-        self.output_nbytes = np.prod(self.output_shape) * np.float32().nbytes
+        inputs, outputs, bindings = [], [], []
 
-        # Allocate device memory
-        self.d_input = cuda.mem_alloc(self.input_nbytes)
-        self.d_output = cuda.mem_alloc(self.output_nbytes)
+        for name in self.tensor_names:
+            shape = self.context.get_tensor_shape(name)
+            size = trt.volume(shape)
+            dtype = np.dtype(trt.nptype(self.engine.get_tensor_dtype(name)))
+            mem = HostDeviceMem(size, dtype)
+            bindings.append(int(mem.device))
+            if self.engine.get_tensor_mode(name) == trt.TensorIOMode.INPUT:
+                inputs.append(mem)
+            else:
+                outputs.append(mem)
 
-        # Allocate host memory
-        self.h_output = np.empty(self.output_shape, dtype=np.float32)
+        for i, name in enumerate(self.tensor_names):
+            self.context.set_tensor_address(name, bindings[i])
 
-        self.bindings = [int(self.d_input), int(self.d_output)]
-        self.stream = cuda.Stream()
+        return inputs, outputs, bindings 
 
-    def get(self, img, face):
-        aimg = face_align.norm_crop(img, landmark=face.kps, image_size=self.input_size[0])
-        face.embedding = self.get_feat(aimg).flatten()
-        return face.embedding
+    def get(self, blob):
+        batch_size = blob.shape[0]
 
-    def compute_sim(self, feat1, feat2):
-        feat1 = feat1.ravel()
-        feat2 = feat2.ravel()
-        return np.dot(feat1, feat2) / (np.norm(feat1) * np.norm(feat2))
+        if batch_size not in self.graph_cache:
+            inputs, outputs, bindings = self._allocate_buffers(batch_size)
+            
+            np.copyto(inputs[0].host.reshape(blob.shape), blob)
 
-    def get_feat(self, imgs):
-        assert isinstance(imgs, list), "imgs should be a list of images"
-        assert len(imgs) == self.batch_size, f"Expected batch of {self.batch_size} images"
+            cudart.cudaStreamBeginCapture(self.stream, cudart.cudaStreamCaptureMode.cudaStreamCaptureModeGlobal)
+            cudart.cudaMemcpyAsync(inputs[0].device, inputs[0].host, inputs[0].nbytes,
+                                   cudart.cudaMemcpyKind.cudaMemcpyHostToDevice, self.stream)
+            self.context.execute_async_v3(stream_handle=self.stream)
+            cudart.cudaMemcpyAsync(outputs[0].host, outputs[0].device, outputs[0].nbytes,
+                                   cudart.cudaMemcpyKind.cudaMemcpyDeviceToHost, self.stream)
+            graph = cuda_call(cudart.cudaStreamEndCapture(self.stream))
+            graph_exec = cuda_call(cudart.cudaGraphInstantiate(graph, 0))
+            self.graph_cache[batch_size] = (inputs, outputs, graph, graph_exec)
 
-    # Convert to NCHW tensor
-        blob = cv2.dnn.blobFromImages(
-            imgs,
-            scalefactor=1.0 / self.input_std,
-            size=self.input_size,
-            mean=(self.input_mean, self.input_mean, self.input_mean),
-            swapRB=True
-        ).astype(np.float32)  # Shape: [B, 3, 112, 112]
+        inputs, outputs, _, graph_exec = self.graph_cache[batch_size]
+            
+        np.copyto(inputs[0].host.reshape(blob.shape), blob)
 
-        assert blob.shape == tuple(self.input_shape), f"Blob shape {blob.shape} doesn't match engine input {self.input_shape}"
+        cudart.cudaMemcpyAsync(inputs[0].device, inputs[0].host, inputs[0].nbytes,
+                               cudart.cudaMemcpyKind.cudaMemcpyHostToDevice, self.stream)
+        cudart.cudaGraphLaunch(graph_exec, self.stream)
+        cudart.cudaStreamSynchronize(self.stream)
+        return outputs[0].host.reshape(batch_size, -1)
 
-        cuda.memcpy_htod_async(self.d_input, blob, self.stream)
-
-        self.context.execute_async_v2(bindings=self.bindings, stream_handle=self.stream.handle)
-
-        cuda.memcpy_dtoh_async(self.h_output, self.d_output, self.stream)
-        self.stream.synchronize()
-
-        return self.h_output.copy()  # Shape: [B, 512] 
-
+    def close(self):
+        if getattr(self, "_closed", False):
+            return
+        self._closed = True
+        for _, _, graph, graph_exec in self.graph_cache.values():
+            cudart.cudaGraphExecDestroy(graph_exec)
+            cudart.cudaGraphDestroy(graph)
+        cudart.cudaStreamDestroy(self.stream)
+        self.graph_cache = {}
+    
+    def __del__(self):
+        try:
+            self.close()
+        except Exception as e:
+            print(f"[WARN] ArcFaceTRT destructor: {e}")
+    
+    
