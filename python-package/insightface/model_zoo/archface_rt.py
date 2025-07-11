@@ -75,7 +75,7 @@ class ArcFaceRT:
                 "graph": graph,
                 "graph_exec": graph_exec
             }
-        inputs, outputs, bindings, graph, graph_exec = self.graph_cache[batch_size]
+        inputs, outputs, bindings, graph, graph_exec = self.graph_cache[batch_size].items()
             
         np.copyto(inputs[0].host.reshape(blob.shape), blob)
 
