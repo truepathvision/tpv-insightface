@@ -79,7 +79,7 @@ class ArcFaceRT:
         cudart.cudaGraphLaunch(graph_exec, self.stream)
         cudart.cudaStreamSynchronize(self.stream)
         return outputs[0].host.reshape(batch_size, -1)
-
+    """
     def close(self):
         if getattr(self, "_closed", False):
             return
@@ -129,4 +129,4 @@ class ArcFaceRT:
         except Exception as e:
             print(f"[WARN] ArcFaceTRT destructor: {e}")
     
-    
+    """
