@@ -75,8 +75,12 @@ class ArcFaceRT:
                 "graph": graph,
                 "graph_exec": graph_exec
             }
-        inputs, outputs, bindings, graph, graph_exec = self.graph_cache[batch_size].items()
-            
+        entry = self.graph_cache[batch_size]
+        inputs = entry["inputs"]
+        outputs = entry["outputs"]
+        bindings = entry["bindings"]
+        graph = entry["graph"]
+        graph_exec = entry["graph_exec"] 
         np.copyto(inputs[0].host.reshape(blob.shape), blob)
 
         cudart.cudaMemcpyAsync(inputs[0].device, inputs[0].host, inputs[0].nbytes,
