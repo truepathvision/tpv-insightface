@@ -27,7 +27,7 @@ class ArcFaceRT:
 
     def _load_engine(self):
         with open(self.engine_path, 'rb') as f, trt.Runtime(self.trt_logger) as runtime:
-            return runtime.describe_cuda_engine(f.read())
+            return runtime.deserialize_cuda_engine(f.read())
 
     def _allocate_buffers(self, batch_size):
         self.context.set_optimization_profile_async(self.profile_idx, self.stream)
