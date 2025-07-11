@@ -1,6 +1,7 @@
 import numpy as np
 import tensorrt as trt
 from cuda.bindings import runtime as cudart
+import atexit
 
 from ..utils.trthelpers import HostDeviceMem, cuda_call
 from ..app.common import Face
@@ -11,7 +12,7 @@ class ArcFaceRT:
         self.mean = mean
         self.std = std
         self.profile_idx = profile_idx
-        
+        atexit.register(self._atexit_cleanup)  
         self.trt_logger = trt.Logger(trt.Logger.WARNING)
         self.engine = self._load_engine()
         self.context = self.engine.create_execution_context()
@@ -23,6 +24,10 @@ class ArcFaceRT:
         self._fixed_blobs = {}
         self.tensor_names = [self.input_name, self.output_name]
         self._closed = False
+    
+    def _atexit_cleanup(self):
+        if not self._closed:
+            self.close()
 
     def _load_engine(self):
         with open(self.engine_path, 'rb') as f, trt.Runtime(self.trt_logger) as runtime:
@@ -125,10 +130,4 @@ class ArcFaceRT:
         self.context = None
         self.engine = None
 
-    def __del__(self):
-        import atexit
-        try:
-            atexit.register(self.close)
-        except Exception as e:
-            print(f"[WARN] ArcFaceTRT destructor: {e}")
  
