@@ -31,10 +31,8 @@ class ArcFaceRT:
     
 
     def _setup_batch(self, batch_size):
-    # Allocate fixed input blob
         self._fixed_blobs[batch_size] = np.empty((batch_size, 3, *self.input_size), dtype=np.float32)
 
-    # Allocate TRT buffers
         inputs, outputs, bindings = self._allocate_buffers(batch_size)
         fixed_blob = self._fixed_blobs[batch_size]
         np.copyto(inputs[0].host.reshape(fixed_blob.shape), fixed_blob)
