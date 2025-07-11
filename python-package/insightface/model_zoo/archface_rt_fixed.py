@@ -93,7 +93,7 @@ class ArcFaceRT:
         fixed_blob = self._fixed_blobs[batch_size]
 
         np.copyto(fixed_blob, blob)
-        cudart.cudaMemcpyAsync(inputs[0].device, inputs[0].host, inputs[0].nbytes,
+        cudart.cudaMemcpyAsync(inputs[0].device, fixed_blob, inputs[0].nbytes,
                            cudart.cudaMemcpyKind.cudaMemcpyHostToDevice, self.stream)
         cudart.cudaGraphLaunch(graph_exec, self.stream)
         cudart.cudaStreamSynchronize(self.stream)
