@@ -90,13 +90,14 @@ class ArcFaceRT:
         inputs = entry["inputs"]
         outputs = entry["outputs"]
         graph_exec = entry["graph_exec"]
-        
+        print("Blob shape:", blob.shape)
+        print("Host buffer shape:", inputs[0].host.shape)
         np.copyto(inputs[0].host.reshape(blob.shape), blob)
         cudart.cudaMemcpyAsync(inputs[0].device, inputs[0].host, inputs[0].nbytes,
                        cudart.cudaMemcpyKind.cudaMemcpyHostToDevice, self.stream)
         cudart.cudaGraphLaunch(graph_exec, self.stream)
         cudart.cudaStreamSynchronize(self.stream)
-
+        
         return outputs[0].host.reshape(batch_size, -1)
 
     def close(self):
