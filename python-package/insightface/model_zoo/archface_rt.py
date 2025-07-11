@@ -94,18 +94,26 @@ class ArcFaceRT:
         if getattr(self, "_closed", False):
             return
         self._closed = True
+        try:
+            for batch_size, entry in self.graph_cache.items():
+                if entry.get('graph_exec') is not None:
+                    cudart.cudaGraphExecDestroy(entry['graph_exec'])
+                if entry.get('graph') is not None:
+                    cudart.cudaGraphDestroy(entry['graph'])
+                for mem in entry['inputs'] + entry['outputs']:
+                    mem.free()
+        
+        except Exception as e:
+            print(f'[Error]: Failed to close: {str(e)}')
 
-        for batch_size, entry in self.graph_cache.items():
-            if entry.get('graph_exec') is not None:
-                cudart.cudaGraphExecDestroy(entry['graph_exec'])
-            if entry.get('graph') is not None:
-                cudart.cudaGraphDestroy(entry['graph'])
-            for mem in entry['inputs'] + entry['outputs']:
-                mem.free()
         self.graph_cache.clear()
-        if self.stream is not None:
-            cudart.cudaStreamSynchronize(self.stream)
-            cudart.cudaStreamDestroy(self.stream)
+        try:
+            if self.stream is not None:
+                cudart.cudaStreamSynchronize(self.stream)
+                cudart.cudaStreamDestroy(self.stream)
+        
+        except Exception as e:
+            print(f'Failed to destroy stream: {str(e)}')
         self.context = None
         self.engine = None
 
