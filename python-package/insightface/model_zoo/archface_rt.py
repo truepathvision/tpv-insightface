@@ -84,11 +84,33 @@ class ArcFaceRT:
         if getattr(self, "_closed", False):
             return
         self._closed = True
-        for _, _, graph, graph_exec in self.graph_cache.values():
-            cudart.cudaGraphExecDestroy(graph_exec)
-            cudart.cudaGraphDestroy(graph)
-        cudart.cudaStreamDestroy(self.stream)
-        self.graph_cache = {}
+
+        try:
+        # Destroy each graph safely
+            for _, _, graph, graph_exec in self.graph_cache.values():
+                if graph_exec:
+                    cudart.cudaGraphExecDestroy(graph_exec)
+                if graph:
+                    cudart.cudaGraphDestroy(graph)
+        except Exception as e:
+            print(f"[WARN] Failed to destroy graphs: {e}")
+
+        self.graph_cache.clear()
+
+        try:
+            if self.stream:
+                cudart.cudaStreamSynchronize(self.stream)  # <-- Important!
+                cudart.cudaStreamDestroy(self.stream)
+                self.stream = None
+        except Exception as e:
+            print(f"[WARN] Failed to destroy stream: {e}")
+
+        try:
+            self.context = None
+            self.engine = None
+        except Exception as e:
+            print(f"[WARN] Failed to clear context/engine: {e}")
+    
     
     def __del__(self):
         try:
