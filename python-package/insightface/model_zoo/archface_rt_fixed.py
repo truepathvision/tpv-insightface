@@ -1,7 +1,6 @@
 import numpy as np
 import tensorrt as trt
 from cuda.bindings import runtime as cudart
-import atexit
 
 from ..utils.trthelpers import HostDeviceMem, cuda_call
 from ..app.common import Face
@@ -23,15 +22,8 @@ class ArcFaceRT:
         self._fixed_blobs = {}
         self.tensor_names = [self.input_name, self.output_name]
         self._closed = False
-        self._cleanup_registered = True
-        atexit.register(self._atexit_cleanup)
     
-    def _atexit_cleanup(self):
-        if self._cleanup_registered and not self._closed:
-            try:
-                self.close()
-            except Exception as e:
-                print(f'[WARN] atexit cleanup failed: {e}')
+    
 
     def _load_engine(self):
         with open(self.engine_path, 'rb') as f, trt.Runtime(self.trt_logger) as runtime:
@@ -111,7 +103,6 @@ class ArcFaceRT:
         if getattr(self, "_closed", False):
             return
         self._closed = True
-        self._cleanup_registered = False
         try:
             for batch_size, entry in self.graph_cache.items():
                 if entry.get('graph_exec') is not None:
@@ -135,4 +126,8 @@ class ArcFaceRT:
         self.context = None
         self.engine = None
 
- 
+    def __del__(self):
+        try:
+            self.close()
+        except Exception as e:
+            print(f"[WARN] __del__ cleanup failed: {e}") 
