@@ -199,7 +199,7 @@ class SCRFD_TRT_G_Batched:
         batch_results = []
         batched = split_batched_results(results,batch_size=batch_size)
         for b in batched:
-            print(b)
+            print(b[1])
         for i, img_result in enumerate(batched):
             dets, kpss = postprocess_trt_outputs(img_result, (input_shape[0],input_shape[1]), threshold=self.threshold)
             dets[:, :4] /= scales[i]

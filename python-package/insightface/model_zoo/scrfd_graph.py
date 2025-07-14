@@ -229,7 +229,7 @@ class SCRFD_TRT_G:
             cudart.cudaStreamSynchronize(self.stream)
 
         results = [out.host for out in self.outputs]
-        print(results)
+        print(results[1])
         input_shape = (self._fixed_blob.shape[2], self._fixed_blob.shape[3])
         
         bboxes, kpss = postprocess_trt_outputs(results, input_shape, threshold=self.threshold)
