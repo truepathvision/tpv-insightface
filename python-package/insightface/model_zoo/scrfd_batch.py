@@ -185,6 +185,7 @@ class SCRFD_TRT_G_Batched:
             #print(f"Output {i} per-image shape: {r.size // batch_size}")
             #print(r)
         batch_results = []
+        print(len(results))
         for i,r in enumerate(results):
             print(input_shape)
             #print(input_shape[2],input_shape[3]) 
