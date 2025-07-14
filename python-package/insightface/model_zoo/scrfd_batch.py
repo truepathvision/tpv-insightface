@@ -91,6 +91,8 @@ def nms(dets, iou_threshold=0.4):
         order = order[inds + 1]
     return keep
 
+def split_batch_tensor(r, b, batch_size):
+    return np.reshape(r, (batch_size, -1))[b] if r.ndim == 1 else np.split(r, batch_size)[b]
 
 
 class SCRFD_TRT_G_Batched:
@@ -180,20 +182,13 @@ class SCRFD_TRT_G_Batched:
         results = [out.host.copy() for out in outputs]
         input_shape = self.input_size
         #print(results)
-        for i, r in enumerate(results):
+        #for i, r in enumerate(results):
             #print(f"Output {i} per-image shape: {r.size // batch_size}")
-            print(r)
+            #print(r)
         batch_results = []
         for b in range(batch_size):
-            result_per_img = []
-            for r in results:
-                r = np.asarray(r)
-                if r.ndim == 1:
-                    per_img = np.split(r, batch_size)[b]
-                else:
-                    r_reshaped = r.reshape((batch_size, -1) + r.shape[1:])
-                    per_img = r_reshaped[b]
-                result_per_img.append(per_img)
+            result_per_img = [split_batch_tensor(r,b,batch_size) for r in results]
+
             dets, kpss = postprocess_trt_outputs(result_per_img, input_shape, threshold=self.threshold)
             dets[:, :4] /= scales[b]
             if kpss is not None:
