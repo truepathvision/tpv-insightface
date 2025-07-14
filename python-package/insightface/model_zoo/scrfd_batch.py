@@ -205,7 +205,7 @@ class SCRFD_TRT_G_Batched:
             #print(f"Output {i} per-image shape: {r.size // batch_size}")
             #print(r)
         batch_results = []
-        batched = split_batched_results(results,batch_size=batch_size)
+        batched = split_batched_results(results,batch_size=batch_size,input_shape=(640,640))
         for b in batched:
             print(b[1])
         for i, img_result in enumerate(batched):
