@@ -249,7 +249,7 @@ class SCRFD_TRT_G:
             ret.append((bbox,kps,det_score))
         if len(ret) == 0:
             return None
-        return results
+        return results.copy()
 
     def draw(self, img, dets, kpss, color=(0, 255, 0), landmark_color=(0, 0, 255)):
         img_drawn = img.copy()
