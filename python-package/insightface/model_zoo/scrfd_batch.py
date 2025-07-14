@@ -146,9 +146,6 @@ class SCRFD_TRT_G_Batched:
         scales: list of scale factors for each image
         """
         batch_size = blob_batch.shape[0]
-        for name in self.tensor_names:
-            shape = self.context.get_tensor_shape(name)
-            print(f"{name} shape: {shape}")
         if batch_size not in self.graph_cache:
             inputs, outputs, bindings = self._allocate_buffers(batch_size)
             np.copyto(inputs[0].host.reshape(blob_batch.shape), blob_batch)
