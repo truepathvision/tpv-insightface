@@ -210,7 +210,7 @@ class SCRFD_TRT_G_Batched:
             for i in range(dets.shape[0]):
                 image_results.append((dets[i, :4], kpss[i] if kpss is not None else None, dets[i, 4]))
             batch_results.append(image_results)
-        return None
+        return []
 
     def close(self):
         if self._closed:
