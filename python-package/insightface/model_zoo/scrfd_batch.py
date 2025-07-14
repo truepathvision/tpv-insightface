@@ -4,7 +4,94 @@ from cuda.bindings import runtime as cudart
 
 from ..utils.trthelpers import HostDeviceMem, cuda_call
 from ..app.common import Face
-from scrfd_graph import postprocess_trt_outputs
+
+def distance2bbox(points, distances):
+    x1 = points[:, 0] - distances[:, 0]
+    y1 = points[:, 1] - distances[:, 1]
+    x2 = points[:, 0] + distances[:, 2]
+    y2 = points[:, 1] + distances[:, 3]
+    return np.stack([x1, y1, x2, y2], axis=-1)
+
+def distance2kps(points, distances):
+    landmarks = []
+    for i in range(0, distances.shape[1], 2):
+        px = points[:, 0] + distances[:, i]
+        py = points[:, 1] + distances[:, i + 1]
+        landmarks.append(np.stack([px, py], axis=-1))
+    return np.stack(landmarks, axis=1)
+
+def generate_anchors(h, w, stride, num_anchors=2):
+    shift_x = np.arange(w) * stride
+    shift_y = np.arange(h) * stride
+    shift_x, shift_y = np.meshgrid(shift_x, shift_y)
+    anchor_centers = np.stack((shift_x, shift_y), axis=-1).reshape(-1, 2)
+
+    if num_anchors > 1:
+        anchor_centers = np.repeat(anchor_centers, num_anchors, axis=0)
+
+    return anchor_centers
+
+def postprocess_trt_outputs(results, input_shape, threshold=0.5):
+    strides = [8, 16, 32]
+    fmc = len(strides)
+    
+    input_h, input_w = input_shape
+    all_scores, all_bboxes, all_kps = [], [], []
+
+    for i, stride in enumerate(strides):
+        score = results[i].reshape(-1)
+        bbox = results[i + fmc].reshape(-1, 4) * stride
+        landmark = results[i + fmc * 2].reshape(-1, 10) * stride
+
+        h, w = input_h // stride, input_w // stride
+        anchors = generate_anchors(h, w, stride, num_anchors=2)
+
+        boxes = distance2bbox(anchors, bbox)
+        kps = distance2kps(anchors, landmark)
+
+        inds = np.where(score > threshold)[0]
+        if len(inds) == 0:
+            continue
+
+        all_scores.append(score[inds])
+        all_bboxes.append(boxes[inds])
+        all_kps.append(kps[inds])
+
+    if not all_bboxes:
+        return np.zeros((0, 5)), np.zeros((0, 5, 2))
+
+    scores = np.concatenate(all_scores)
+    bboxes = np.concatenate(all_bboxes)
+    kpss = np.concatenate(all_kps)
+
+    dets = np.hstack((bboxes, scores[:, None]))
+    keep = nms(dets, iou_threshold=0.4)
+    return dets[keep], kpss[keep]
+
+def nms(dets, iou_threshold=0.4):
+    x1, y1, x2, y2, scores = dets[:,0], dets[:,1], dets[:,2], dets[:,3], dets[:,4]
+    areas = (x2 - x1) * (y2 - y1)
+    order = scores.argsort()[::-1]
+
+    keep = []
+    while order.size > 0:
+        i = order[0]
+        keep.append(i)
+        xx1 = np.maximum(x1[i], x1[order[1:]])
+        yy1 = np.maximum(y1[i], y1[order[1:]])
+        xx2 = np.minimum(x2[i], x2[order[1:]])
+        yy2 = np.minimum(y2[i], y2[order[1:]])
+
+        w = np.maximum(0, xx2 - xx1)
+        h = np.maximum(0, yy2 - yy1)
+        inter = w * h
+        ovr = inter / (areas[i] + areas[order[1:]] - inter)
+
+        inds = np.where(ovr <= iou_threshold)[0]
+        order = order[inds + 1]
+    return keep
+
+
 
 class SCRFD_TRT_G_Batched:
     def __init__(self, engine_path, input_size=(640, 640), threshold=0.5, nms_thresh=0.4, profile_idx=0):
