@@ -174,7 +174,7 @@ class SCRFD_TRT_G_Batched:
             self.graph_cache[batch_size] = {
                 "inputs": inputs,
                 "outputs": outputs,
-                "bindings": bindings,
+        "bindings": bindings,
                 "graph": graph,
                 "graph_exec": graph_exec
             }
@@ -198,6 +198,8 @@ class SCRFD_TRT_G_Batched:
             #print(r)
         batch_results = []
         batched = split_batched_results(results,batch_size=batch_size)
+        for b in batched:
+            print(b)
         for i, img_result in enumerate(batched):
             dets, kpss = postprocess_trt_outputs(img_result, (input_shape[0],input_shape[1]), threshold=self.threshold)
             dets[:, :4] /= scales[i]
@@ -208,7 +210,7 @@ class SCRFD_TRT_G_Batched:
             for i in range(dets.shape[0]):
                 image_results.append((dets[i, :4], kpss[i] if kpss is not None else None, dets[i, 4]))
             batch_results.append(image_results)
-        return batch_results
+        return None
 
     def close(self):
         if self._closed:

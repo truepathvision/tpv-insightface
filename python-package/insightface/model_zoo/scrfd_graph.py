@@ -229,7 +229,7 @@ class SCRFD_TRT_G:
             cudart.cudaStreamSynchronize(self.stream)
 
         results = [out.host for out in self.outputs]
-        #print(results)
+        print(results)
         input_shape = (self._fixed_blob.shape[2], self._fixed_blob.shape[3])
         
         bboxes, kpss = postprocess_trt_outputs(results, input_shape, threshold=self.threshold)
@@ -238,8 +238,7 @@ class SCRFD_TRT_G:
             kpss /= scale
         
         if bboxes.shape[0] == 0:
-            return []
-        
+            return [] 
         ret = []
         for i in range(bboxes.shape[0]):
             bbox = bboxes[i, 0:4]
@@ -251,7 +250,7 @@ class SCRFD_TRT_G:
             ret.append((bbox,kps,det_score))
         if len(ret) == 0:
             return None
-        return ret 
+        return None 
 
     def draw(self, img, dets, kpss, color=(0, 255, 0), landmark_color=(0, 0, 255)):
         img_drawn = img.copy()
