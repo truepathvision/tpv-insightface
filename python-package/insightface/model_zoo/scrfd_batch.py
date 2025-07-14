@@ -188,7 +188,7 @@ class SCRFD_TRT_G_Batched:
         for i,r in enumerate(results):
             print(input_shape)
             #print(input_shape[2],input_shape[3]) 
-            print(r)
+            print(r.shape)
             dets, kpss = postprocess_trt_outputs(r, (input_shape[0],input_shape[1]), threshold=self.threshold)
             dets[:, :4] /= scales[i]
             if kpss is not None:
