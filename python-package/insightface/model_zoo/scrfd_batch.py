@@ -180,26 +180,22 @@ class SCRFD_TRT_G_Batched:
         results = [out.host.copy() for out in outputs]
         input_shape = self.input_size
 
-        # Per-image postprocessing
-        stride_groups = len([8, 16, 32])
         batch_results = []
-        print(batch_size)
         for b in range(batch_size):
-            offset = b * (results[0].size // batch_size)
-            result_per_img = []
-            for i,r in enumerate(results):
-                per_batch_size = r.size // batch_size
-                result_per_img.append(r[b * per_batch_size : (b + 1) * per_batch_size])
+            result_per_img = [
+                r.reshape((batch_size, -1, *r.shape[1:]))[b] if r.ndim > 1 else r.reshape((batch_size, -1))[b]
+                for r in results
+            ]
 
             dets, kpss = postprocess_trt_outputs(result_per_img, input_shape, threshold=self.threshold)
             dets[:, :4] /= scales[b]
             if kpss is not None:
                 kpss /= scales[b]
+
             image_results = []
             for i in range(dets.shape[0]):
                 image_results.append((dets[i, :4], kpss[i] if kpss is not None else None, dets[i, 4]))
             batch_results.append(image_results)
-
         return batch_results
 
     def close(self):
