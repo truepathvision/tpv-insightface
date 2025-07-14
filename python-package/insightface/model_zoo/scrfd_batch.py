@@ -161,10 +161,6 @@ class SCRFD_TRT_G_Batched:
         return inputs, outputs, bindings
 
     def detect(self, blob_batch, scales):
-        """
-        blob_batch: np.ndarray of shape [B, 3, H, W]
-        scales: list of scale factors for each image
-        """
         batch_size = blob_batch.shape[0]
         if batch_size not in self.graph_cache:
             inputs, outputs, bindings = self._allocate_buffers(batch_size)
@@ -172,20 +168,17 @@ class SCRFD_TRT_G_Batched:
 
             cudart.cudaStreamBeginCapture(self.stream, cudart.cudaStreamCaptureMode.cudaStreamCaptureModeGlobal)
             cudart.cudaMemcpyAsync(inputs[0].device, inputs[0].host, inputs[0].nbytes,
-                                   cudart.cudaMemcpyKind.cudaMemcpyHostToDevice, self.stream)
+                               cudart.cudaMemcpyKind.cudaMemcpyHostToDevice, self.stream)
             self.context.execute_async_v3(stream_handle=self.stream)
-            cudart.cudaMemcpyAsync(outputs[0].host,outputs[0].device,outputs[0].nbytes,
-                                    cudart.cudaMemcpyKind.cudaMemcpyDeviceToHost,self.stream)
-
-            #for out in outputs:
-            #    cudart.cudaMemcpyAsync(out.host, out.device, out.nbytes,
-            #                           cudart.cudaMemcpyKind.cudaMemcpyDeviceToHost, self.stream)
+            for out in outputs:
+                cudart.cudaMemcpyAsync(out.device, out.host, out.nbytes,
+                                   cudart.cudaMemcpyKind.cudaMemcpyDeviceToHost, self.stream)
             graph = cuda_call(cudart.cudaStreamEndCapture(self.stream))
             graph_exec = cuda_call(cudart.cudaGraphInstantiate(graph, 0))
             self.graph_cache[batch_size] = {
                 "inputs": inputs,
                 "outputs": outputs,
-        "bindings": bindings,
+                "bindings": bindings,
                 "graph": graph,
                 "graph_exec": graph_exec
             }
@@ -197,31 +190,25 @@ class SCRFD_TRT_G_Batched:
 
         np.copyto(inputs[0].host.reshape(blob_batch.shape), blob_batch)
         cudart.cudaMemcpyAsync(inputs[0].device, inputs[0].host, inputs[0].nbytes,
-                               cudart.cudaMemcpyKind.cudaMemcpyHostToDevice, self.stream)
+                           cudart.cudaMemcpyKind.cudaMemcpyHostToDevice, self.stream)
         cudart.cudaGraphLaunch(graph_exec, self.stream)
         cudart.cudaStreamSynchronize(self.stream)
-        return outputs[0].host.reshape(batch_size, -1)
 
-        input_shape = self.input_size
-        #print(results)
-        #for i, r in enumerate(results):
-            #print(f"Output {i} per-image shape: {r.size // batch_size}")
-            #print(r)
+    # Collect all outputs
+        all_results = [out.host.copy() for out in outputs]
+        per_image_results = split_batched_results(all_results, batch_size, self.input_size)
         batch_results = []
-        """
-        batched = split_batched_results(results,batch_size=batch_size,input_shape=(640,640))
-        for i, img_result in enumerate(batched):
-            dets, kpss = postprocess_trt_outputs(img_result, (input_shape[0],input_shape[1]), threshold=self.threshold)
+        for i in range(batch_size):
+            dets, kpss = postprocess_trt_outputs(per_image_results[i], self.input_size, threshold=self.threshold)
             dets[:, :4] /= scales[i]
             if kpss is not None:
                 kpss /= scales[i]
-
             image_results = []
-            for i in range(dets.shape[0]):
-                image_results.append((dets[i, :4], kpss[i] if kpss is not None else None, dets[i, 4]))
+            for j in range(dets.shape[0]):
+                image_results.append((dets[j, :4], kpss[j] if kpss is not None else None, dets[j, 4]))
             batch_results.append(image_results)
-        """
-        return results
+
+        return batch_results
 
     def close(self):
         if self._closed:
