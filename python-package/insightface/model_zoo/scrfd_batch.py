@@ -188,19 +188,17 @@ class SCRFD_TRT_G_Batched:
             #print(f"Output {i} per-image shape: {r.size // batch_size}")
             #print(r)
         batch_results = []
-        for r in results:
+        for i,r in enumerate(results):
             print(input_shape) 
-            """
-            dets, kpss = postprocess_trt_outputs(result_per_img, input_shape, threshold=self.threshold)
-            dets[:, :4] /= scales[b]
+            dets, kpss = postprocess_trt_outputs(r, (input_shape[2],input_shape[3]), threshold=self.threshold)
+            dets[:, :4] /= scales[i]
             if kpss is not None:
-                kpss /= scales[b]
+                kpss /= scales[i]
 
             image_results = []
             for i in range(dets.shape[0]):
                 image_results.append((dets[i, :4], kpss[i] if kpss is not None else None, dets[i, 4]))
             batch_results.append(image_results)
-            """
         return batch_results
 
     def close(self):
