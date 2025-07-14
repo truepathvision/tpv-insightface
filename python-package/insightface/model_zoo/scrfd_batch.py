@@ -197,7 +197,7 @@ class SCRFD_TRT_G_Batched:
                                cudart.cudaMemcpyKind.cudaMemcpyHostToDevice, self.stream)
         cudart.cudaGraphLaunch(graph_exec, self.stream)
         cudart.cudaStreamSynchronize(self.stream)
-        return outputs[0].host.reshape(batch_size,-1)
+        return [outputs[0].host.reshape(batch_size,-1)]
         input_shape = self.input_size
         #print(results)
         #for i, r in enumerate(results):
