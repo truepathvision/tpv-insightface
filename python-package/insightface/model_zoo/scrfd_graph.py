@@ -231,7 +231,8 @@ class SCRFD_TRT_G:
         results = [out.host for out in self.outputs]
         #print(results)
         input_shape = (self._fixed_blob.shape[2], self._fixed_blob.shape[3])
-        print(input_shape) 
+        print(results) 
+        
         bboxes, kpss = postprocess_trt_outputs(results, input_shape, threshold=self.threshold)
         bboxes[:, :4] /= scale
         if kpss is not None:
@@ -239,7 +240,7 @@ class SCRFD_TRT_G:
         
         if bboxes.shape[0] == 0:
             return []
-
+        
         ret = []
         for i in range(bboxes.shape[0]):
             bbox = bboxes[i, 0:4]
