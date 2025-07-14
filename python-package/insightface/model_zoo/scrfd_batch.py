@@ -179,7 +179,8 @@ class SCRFD_TRT_G_Batched:
 
         results = [out.host.copy() for out in outputs]
         input_shape = self.input_size
-
+        print(results)
+        
         batch_results = []
         for b in range(batch_size):
             result_per_img = [
