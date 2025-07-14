@@ -156,8 +156,8 @@ class SCRFD_TRT_G_Batched:
             for out in outputs:
                 cudart.cudaMemcpyAsync(out.host, out.device, out.nbytes,
                                        cudart.cudaMemcpyKind.cudaMemcpyDeviceToHost, self.stream)
-            graph = cudart.cudaStreamEndCapture(self.stream)
-            graph_exec = cudart.cudaGraphInstantiate(graph, 0)
+            graph = cuda_call(cudart.cudaStreamEndCapture(self.stream))
+            graph_exec = cuda_call(cudart.cudaGraphInstantiate(graph, 0))
             self.graph_cache[batch_size] = {
                 "inputs": inputs,
                 "outputs": outputs,
