@@ -205,6 +205,7 @@ class SCRFD_TRT_G_Batched:
             #print(f"Output {i} per-image shape: {r.size // batch_size}")
             #print(r)
         batch_results = []
+        """
         batched = split_batched_results(results,batch_size=batch_size,input_shape=(640,640))
         for i, img_result in enumerate(batched):
             dets, kpss = postprocess_trt_outputs(img_result, (input_shape[0],input_shape[1]), threshold=self.threshold)
@@ -216,6 +217,7 @@ class SCRFD_TRT_G_Batched:
             for i in range(dets.shape[0]):
                 image_results.append((dets[i, :4], kpss[i] if kpss is not None else None, dets[i, 4]))
             batch_results.append(image_results)
+        """
         return results
 
     def close(self):
