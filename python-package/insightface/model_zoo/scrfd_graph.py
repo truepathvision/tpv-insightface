@@ -231,6 +231,7 @@ class SCRFD_TRT_G:
         results = [out.host for out in self.outputs]
         #print(results)
         input_shape = (self._fixed_blob.shape[2], self._fixed_blob.shape[3])
+        print(input_shape) 
         bboxes, kpss = postprocess_trt_outputs(results, input_shape, threshold=self.threshold)
         bboxes[:, :4] /= scale
         if kpss is not None:
@@ -250,7 +251,7 @@ class SCRFD_TRT_G:
             ret.append((bbox,kps,det_score))
         if len(ret) == 0:
             return None
-        return ret
+        return None
 
     def draw(self, img, dets, kpss, color=(0, 255, 0), landmark_color=(0, 0, 255)):
         img_drawn = img.copy()
