@@ -91,8 +91,20 @@ def nms(dets, iou_threshold=0.4):
         order = order[inds + 1]
     return keep
 
-def split_batch_tensor(r, b, batch_size):
-    return np.reshape(r, (batch_size, -1))[b] if r.ndim == 1 else np.split(r, batch_size)[b]
+def split_batched_results(results, batch_size):
+    fmc = 3  # number of strides: 8, 16, 32
+    per_image_results = [[] for _ in range(batch_size)]
+
+    for i in range(len(results)):
+        r = results[i]
+        per_image_size = r.shape[0] // batch_size
+
+        reshaped = r.reshape(batch_size, per_image_size, *r.shape[1:]) if r.ndim > 1 else r.reshape(batch_size, per_image_size)
+
+        for b in range(batch_size):
+            per_image_results[b].append(reshaped[b])
+
+    return per_image_results  # list of length batch_size, each is a list of 9_
 
 
 class SCRFD_TRT_G_Batched:
@@ -185,12 +197,10 @@ class SCRFD_TRT_G_Batched:
             #print(f"Output {i} per-image shape: {r.size // batch_size}")
             #print(r)
         batch_results = []
-        print(len(results))
-        for i,r in enumerate(results):
-            print(input_shape)
-            #print(input_shape[2],input_shape[3]) 
-            print(r.shape)
-            dets, kpss = postprocess_trt_outputs(r, (input_shape[0],input_shape[1]), threshold=self.threshold)
+        batched = split_batched_results(results,batch_size=batch_size)
+        for i, img_result in enumerate(batched):
+            print(img_result)
+            dets, kpss = postprocess_trt_outputs(img_result, (input_shape[0],input_shape[1]), threshold=self.threshold)
             dets[:, :4] /= scales[i]
             if kpss is not None:
                 kpss /= scales[i]
