@@ -174,9 +174,12 @@ class SCRFD_TRT_G_Batched:
             cudart.cudaMemcpyAsync(inputs[0].device, inputs[0].host, inputs[0].nbytes,
                                    cudart.cudaMemcpyKind.cudaMemcpyHostToDevice, self.stream)
             self.context.execute_async_v3(stream_handle=self.stream)
-            for out in outputs:
-                cudart.cudaMemcpyAsync(out.host, out.device, out.nbytes,
-                                       cudart.cudaMemcpyKind.cudaMemcpyDeviceToHost, self.stream)
+            cudart.cudaMemcpyAsync(outputs[0].host,outputs[0].device,outputs[0].nbytes,
+                                    cudart.cudaMemcpyKind.cudaMemcpyDeviceToHost,self.stream)
+
+            #for out in outputs:
+            #    cudart.cudaMemcpyAsync(out.host, out.device, out.nbytes,
+            #                           cudart.cudaMemcpyKind.cudaMemcpyDeviceToHost, self.stream)
             graph = cuda_call(cudart.cudaStreamEndCapture(self.stream))
             graph_exec = cuda_call(cudart.cudaGraphInstantiate(graph, 0))
             self.graph_cache[batch_size] = {
@@ -197,7 +200,8 @@ class SCRFD_TRT_G_Batched:
                                cudart.cudaMemcpyKind.cudaMemcpyHostToDevice, self.stream)
         cudart.cudaGraphLaunch(graph_exec, self.stream)
         cudart.cudaStreamSynchronize(self.stream)
-        return [out.host.copy() for out in outputs]
+        return outputs[0].host.reshape(batch_size, -1)
+
         input_shape = self.input_size
         #print(results)
         #for i, r in enumerate(results):
