@@ -189,8 +189,18 @@ class SCRFD_TRT_G_Batched:
             #print(r)
         batch_results = []
         for b in range(batch_size):
-            result_per_img = [split_batch_tensor(r,b,batch_size) for r in results]
+            anchors_per_img = results[0].shape[0] // batch_size
+            start = b * anchors_per_img
+            end = (b + 1) * anchors_per_img
 
+            result_per_img = []
+            for r in results:
+                if r.ndim == 2:
+                    result_per_img.append(r[start:end])
+                elif r.ndim == 1:
+                    result_per_img.append(r[start:end])
+                else:
+                    raise ValueError(f"Unexpected shape {r.shape}")
             dets, kpss = postprocess_trt_outputs(result_per_img, input_shape, threshold=self.threshold)
             dets[:, :4] /= scales[b]
             if kpss is not None:
