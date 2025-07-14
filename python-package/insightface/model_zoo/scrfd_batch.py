@@ -198,7 +198,7 @@ class SCRFD_TRT_G_Batched:
         cudart.cudaGraphLaunch(graph_exec, self.stream)
         cudart.cudaStreamSynchronize(self.stream)
 
-        results = [out.host for out in outputs]
+        results = [out.host.copy() for out in outputs]
         input_shape = self.input_size
         #print(results)
         #for i, r in enumerate(results):
