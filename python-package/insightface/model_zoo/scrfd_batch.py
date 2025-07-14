@@ -185,9 +185,11 @@ class SCRFD_TRT_G_Batched:
         batch_results = []
         for b in range(batch_size):
             offset = b * (results[0].size // batch_size)
-            result_per_img = [
-                r.reshape((batch_size, -1, *r.shape[1:]))[b] for r in results
-            ]
+            result_per_img = []
+            for r in results:
+                per_batch_size = r.size // batch_size
+                result_per_img.append(r[b * per_batch_size : (b + 1) * per_batch_size])
+
             dets, kpss = postprocess_trt_outputs(result_per_img, input_shape, threshold=self.threshold)
             dets[:, :4] /= scales[b]
             if kpss is not None:
