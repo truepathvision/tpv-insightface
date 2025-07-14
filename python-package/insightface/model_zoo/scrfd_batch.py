@@ -197,6 +197,7 @@ class SCRFD_TRT_G_Batched:
         cudart.cudaStreamSynchronize(self.stream)
 
         all_results = [out.host.copy() for out in outputs]
+        print(all_results)
         per_image_results = split_batched_results(all_results, batch_size, self.input_size)
         batch_results = []
         for i in range(batch_size):
