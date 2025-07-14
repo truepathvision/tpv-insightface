@@ -20,7 +20,7 @@ def distance2kps(points, distances):
         landmarks.append(np.stack([px, py], axis=-1))
     return np.stack(landmarks, axis=1)
 
-def generate_anchors(h, w, stride, num_anchors=2):
+def generate_anchors(h, w, stride, num_anchors=1):
     shift_x = np.arange(w) * stride
     shift_y = np.arange(h) * stride
     shift_x, shift_y = np.meshgrid(shift_x, shift_y)
