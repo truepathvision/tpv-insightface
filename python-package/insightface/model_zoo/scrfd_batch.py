@@ -183,6 +183,7 @@ class SCRFD_TRT_G_Batched:
         for i, r in enumerate(results):
             print(f"Output {i} per-image shape: {r.size // batch_size}")
         batch_results = []
+        """
         for b in range(batch_size):
             result_per_img = []
             for r in results:
@@ -200,7 +201,8 @@ class SCRFD_TRT_G_Batched:
                 image_results.append((dets[i, :4], kpss[i] if kpss is not None else None, dets[i, 4]))
             batch_results.append(image_results)
         return batch_results
-
+        """
+        return None
     def close(self):
         if self._closed:
             return
