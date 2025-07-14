@@ -180,8 +180,8 @@ class SCRFD_TRT_G_Batched:
         results = [out.host.copy() for out in outputs]
         input_shape = self.input_size
         #print(results)
-        #for i, r in enumerate(results):
-            #print(f"Output {i} per-image shape: {r.size // batch_size}")
+        for i, r in enumerate(results):
+            print(f"Output {i} per-image shape: {r.size // batch_size}")
         batch_results = []
         for b in range(batch_size):
             result_per_img = []
