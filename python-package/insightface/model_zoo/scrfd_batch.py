@@ -132,7 +132,9 @@ class SCRFD_TRT_G_Batched:
         self.tensor_names = [self.engine.get_tensor_name(i) for i in range(self.engine.num_io_tensors)]
         self.graph_cache = {}
         self._closed = False
-
+        print("Output tensor order:")
+        for i, name in enumerate(self.tensor_names):
+            print(f"[{i}] {name}")
     def _load_engine(self):
         with open(self.engine_path, 'rb') as f, trt.Runtime(self.trt_logger) as runtime:
             return runtime.deserialize_cuda_engine(f.read())
@@ -194,7 +196,6 @@ class SCRFD_TRT_G_Batched:
         cudart.cudaGraphLaunch(graph_exec, self.stream)
         cudart.cudaStreamSynchronize(self.stream)
 
-    # Collect all outputs
         all_results = [out.host.copy() for out in outputs]
         per_image_results = split_batched_results(all_results, batch_size, self.input_size)
         batch_results = []
