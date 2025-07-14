@@ -91,20 +91,28 @@ def nms(dets, iou_threshold=0.4):
         order = order[inds + 1]
     return keep
 
-def split_batched_results(results, batch_size):
-    fmc = 3  # number of strides: 8, 16, 32
+def split_batched_results(results, batch_size, input_shape):
+    fmc = 3  # number of feature map strides
+    h, w = input_shape
     per_image_results = [[] for _ in range(batch_size)]
 
+    # Output ordering: [score_8, score_16, score_32, bbox_8, ..., kps_32]
     for i in range(len(results)):
         r = results[i]
-        per_image_size = r.shape[0] // batch_size
-
-        reshaped = r.reshape(batch_size, per_image_size, *r.shape[1:]) if r.ndim > 1 else r.reshape(batch_size, per_image_size)
+        if i < fmc:
+            # score, shape = (B * N,)
+            per_image_size = r.shape[0] // batch_size
+            r = r.reshape(batch_size, per_image_size)
+        else:
+            feat_dim = 4 if fmc <= i < 2*fmc else 10
+            per_image_size = r.shape[0] // (batch_size * feat_dim)
+            r = r.reshape(batch_size, per_image_size, feat_dim)
 
         for b in range(batch_size):
-            per_image_results[b].append(reshaped[b])
+            per_image_results[b].append(r[b])
 
-    return per_image_results  # list of length batch_size, each is a list of 9_
+    return per_image_results
+
 
 
 class SCRFD_TRT_G_Batched:
