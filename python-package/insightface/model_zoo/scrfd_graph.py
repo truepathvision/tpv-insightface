@@ -94,13 +94,13 @@ def nms_old(dets, iou_threshold=0.4):
         order = order[inds + 1]
     keep = nms(torch.tensor(dets[:, :4], device='cuda'), torch.tensor(dets[:, 4], device='cuda'), iou_threshold)
     return keep
-
+"""
 def nms_bad(dets, iou_threshold=0.4):
     boxes = torch.tensor(dets[:, :4], dtype=torch.float32, device="cuda")
     scores = torch.tensor(dets[:, 4], dtype=torch.float32, device="cuda")
     keep = torch.ops.torchvision.nms(boxes, scores, iou_threshold)
     return keep.cpu().numpy()
-
+"""
 class SCRFD_TRT_G:
     def __init__(self, engine_path, input_size=(640, 640), threshold=0.5, nms_thresh=0.4):
         self.engine_path = engine_path
