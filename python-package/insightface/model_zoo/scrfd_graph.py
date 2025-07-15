@@ -3,6 +3,7 @@ import cv2
 import tensorrt as trt
 from cuda.bindings import runtime as cudart
 import torch
+from torchvision.ops import nms
 
 from ..utils.trthelpers import HostDeviceMem, cuda_call
 from ..app.common import Face
@@ -91,9 +92,10 @@ def nms_old(dets, iou_threshold=0.4):
 
         inds = np.where(ovr <= iou_threshold)[0]
         order = order[inds + 1]
+    keep = nms(torch.tensor(dets[:, :4], device='cuda'), torch.tensor(dets[:, 4], device='cuda'), iou_threshold)
     return keep
 
-def nms(dets, iou_threshold=0.4):
+def nms_bad(dets, iou_threshold=0.4):
     boxes = torch.tensor(dets[:, :4], dtype=torch.float32, device="cuda")
     scores = torch.tensor(dets[:, 4], dtype=torch.float32, device="cuda")
     keep = torch.ops.torchvision.nms(boxes, scores, iou_threshold)
