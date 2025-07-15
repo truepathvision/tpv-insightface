@@ -233,11 +233,11 @@ class SCRFD_TRT_G:
             self.graph_created = True
 
             cudart.cudaGraphLaunch(self.graph_exec, self.stream)
-            cudart.cudaStreamSynchronize(self.stream)
+            #cudart.cudaStreamSynchronize(self.stream)
 
         else:
             cudart.cudaGraphLaunch(self.graph_exec, self.stream)
-            cudart.cudaStreamSynchronize(self.stream)
+            #cudart.cudaStreamSynchronize(self.stream)
 
         results = [out.host.copy() for out in self.outputs]
         input_shape = (self._fixed_blob.shape[2], self._fixed_blob.shape[3])
