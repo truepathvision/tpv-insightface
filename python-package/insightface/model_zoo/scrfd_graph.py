@@ -68,9 +68,10 @@ def postprocess_trt_outputs(results, input_shape, threshold=0.5):
     kpss = np.concatenate(all_kps)
 
     dets = np.hstack((bboxes, scores[:, None]))
-    keep = nms(dets, iou_threshold=0.4)
-    return dets[keep], kpss[keep]
+    keep = nms(torch.tensor(dets[:, :4], device='cuda'), torch.tensor(dets[:, 4], device='cuda'),0.4)
 
+    return dets[keep.cpu().numpy()], kpss[keep.cpu().numpy()]
+"""
 def nms_old(dets, iou_threshold=0.4):
     x1, y1, x2, y2, scores = dets[:,0], dets[:,1], dets[:,2], dets[:,3], dets[:,4]
     areas = (x2 - x1) * (y2 - y1)
@@ -94,6 +95,7 @@ def nms_old(dets, iou_threshold=0.4):
         order = order[inds + 1]
     keep = nms(torch.tensor(dets[:, :4], device='cuda'), torch.tensor(dets[:, 4], device='cuda'), iou_threshold)
     return keep
+"""
 """
 def nms_bad(dets, iou_threshold=0.4):
     boxes = torch.tensor(dets[:, :4], dtype=torch.float32, device="cuda")
