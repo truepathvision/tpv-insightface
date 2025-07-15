@@ -2,6 +2,7 @@ import numpy as np
 import cv2
 import tensorrt as trt
 from cuda.bindings import runtime as cudart
+import torch
 
 from ..utils.trthelpers import HostDeviceMem, cuda_call
 from ..app.common import Face
@@ -69,7 +70,7 @@ def postprocess_trt_outputs(results, input_shape, threshold=0.5):
     keep = nms(dets, iou_threshold=0.4)
     return dets[keep], kpss[keep]
 
-def nms(dets, iou_threshold=0.4):
+def nms_old(dets, iou_threshold=0.4):
     x1, y1, x2, y2, scores = dets[:,0], dets[:,1], dets[:,2], dets[:,3], dets[:,4]
     areas = (x2 - x1) * (y2 - y1)
     order = scores.argsort()[::-1]
@@ -91,6 +92,12 @@ def nms(dets, iou_threshold=0.4):
         inds = np.where(ovr <= iou_threshold)[0]
         order = order[inds + 1]
     return keep
+
+def nms(dets, iou_threshold=0.4):
+    boxes = torch.tensor(dets[:, :4], dtype=torch.float32, device="cuda")
+    scores = torch.tensor(dets[:, 4], dtype=torch.float32, device="cuda")
+    keep = torch.ops.torchvision.nms(boxes, scores, iou_threshold)
+    return keep.cpu().numpy()
 
 class SCRFD_TRT_G:
     def __init__(self, engine_path, input_size=(640, 640), threshold=0.5, nms_thresh=0.4):
