@@ -206,10 +206,10 @@ class SCRFD_TRT_G:
         self.context = None
         self.engine = None
 
-    def detect(self, blob, scale):
+    def detect(self, img, scale):
          
-        #self._preprocess(img)
-        np.copyto(self._fixed_blob, blob)
+        self._preprocess(img)
+        #np.copyto(self._fixed_blob, blob)
         self.inputs[0].host = self._fixed_blob
         if not self.graph_created:
             
