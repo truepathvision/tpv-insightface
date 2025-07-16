@@ -274,7 +274,51 @@ class SCRFD_TRT_G:
         if len(ret) == 0 :
             return None
         return ret
+
+
+    def detect_test(self, img, scale,preprocess=False):
+        if preprocess:
+            self._preprocess(img)
     
+    # Push blob to device
+        cuda_call(cudart.cudaMemcpyAsync(
+            self.inputs[0].device, self.inputs[0].host,
+            self.inputs[0].nbytes, cudart.cudaMemcpyKind.cudaMemcpyHostToDevice, self.stream
+        ))
+
+    # Run inference
+        self.context.execute_async_v3(stream_handle=self.stream)
+
+    # Copy outputs
+        for out in self.outputs:
+            cuda_call(cudart.cudaMemcpyAsync(
+                out.host, out.device, out.nbytes,
+                cudart.cudaMemcpyKind.cudaMemcpyDeviceToHost, self.stream
+            ))
+
+    # Sync
+        cuda_call(cudart.cudaStreamSynchronize(self.stream))
+        results = [out.host for out in self.outputs]
+        input_shape = (self._fixed_blob.shape[2], self._fixed_blob.shape[3])
+        bboxes, kpss = postprocess_trt_outputs(results, input_shape, threshold=self.threshold)
+        bboxes[:, :4] /= scale
+        if kpss is not None:
+            kpss /= scale
+        
+        if bboxes.shape[0] == 0:
+            return [] 
+        ret = []
+        for i in range(bboxes.shape[0]):
+            bbox = bboxes[i, 0:4]
+            det_score = bboxes[i,4]
+            kps = None
+            if kpss is not None:
+                kps = kpss[i]
+            #face = Face(bbox=bbox, kps=kps,det_score=det_score)
+            ret.append((bbox,kps,det_score))
+        if len(ret) == 0 :
+            return None
+        return ret
 
     def detect_from_gpu(self, img,scale):
         print(f"[SCRFD] Begin detect_from_gpu with raw_ptr={raw_ptr}, scale={scale:.4f}", flush=True)
