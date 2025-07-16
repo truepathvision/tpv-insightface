@@ -1,49 +1,47 @@
-import numpy as np
-from cuda.bindings import runtime as cudart
-from cuda.bindings.driver import cuInit, cuModuleLoad, cuModuleGetFunction, cuLaunchKernel
-from cuda.bindings.driver import cuCtxGetCurrent
+
+
+# utils/preprocess.py
 from ctypes import c_void_p, byref
-
-# Step 1: Initialize
-cuInit(0)
-ctx = cuCtxGetCurrent()
-
-# Step 2: Load compiled kernel
-module = c_void_p()
-cudart.check_call(cuModuleLoad(byref(module), b"preprocess.ptx"))
-
-# Step 3: Get function handle
-kernel = c_void_p()
-cudart.check_call(cuModuleGetFunction(byref(kernel), module, b"preprocess_kernel"))
-
-# Step 4: Allocate input/output
-width, height = 640, 640
-img_size = width * height * 3
-blob_size = 3 * width * height
-
-raw_img_gpu = cudart.cudaMalloc(img_size)[1]
-blob_out_gpu = cudart.cudaMalloc(blob_size * 4)[1]  # float32
-
-# Step 5: Launch kernel
-block = (32, 32, 1)
-grid = ((width + 31) // 32, (height + 31) // 32, 1)
-
-args = (
-    c_void_p(raw_img_gpu),
-    c_void_p(blob_out_gpu),
-    np.int32(width),
-    np.int32(height)
+from cuda.bindings import runtime as cudart
+from cuda.bindings.driver import (
+    cuInit, cuModuleLoad, cuModuleGetFunction, cuLaunchKernel, cuCtxGetCurrent
 )
-args_ptrs = (c_void_p * len(args))(*[c_void_p(id(arg)) if isinstance(arg, c_void_p) else byref(arg) for arg in args])
+import numpy as np
+import os
 
-stream = cudart.cudaStreamCreate()[1]
-cuLaunchKernel(
-    kernel,
-    grid[0], grid[1], grid[2],
-    block[0], block[1], block[2],
-    0, stream,
-    args_ptrs,
-    None
-)
-cudart.cudaStreamSynchronize(stream)
+class GpuPreprocessor:
+    def __init__(self, ptx_path="/home/tpv/TPV/repos/beast-emb/full/preprocess.ptx", width=640, height=640):
+        cuInit(0)
+        ctx = cuCtxGetCurrent()
+        self.width, self.height = width, height
+        self.block = (32, 32, 1)
+        self.grid = ((width + 31) // 32, (height + 31) // 32, 1)
+        self.stream = cudart.cudaStreamCreate()[1]
+
+        self.module = c_void_p()
+        cudart.check_call(cuModuleLoad(byref(self.module), ptx_path.encode('utf-8')))
+
+        self.kernel = c_void_p()
+        cudart.check_call(cuModuleGetFunction(byref(self.kernel), self.module, b"preprocess_kernel"))
+
+    def __call__(self, raw_ptr, blob_ptr):
+        args = (
+            c_void_p(raw_ptr),
+            c_void_p(blob_ptr),
+            np.int32(self.width),
+            np.int32(self.height)
+        )
+        args_ptrs = (c_void_p * len(args))(*[
+            c_void_p(id(arg)) if isinstance(arg, c_void_p) else byref(arg) for arg in args
+        ])
+
+        cuLaunchKernel(
+            self.kernel,
+            self.grid[0], self.grid[1], self.grid[2],
+            self.block[0], self.block[1], self.block[2],
+            0, self.stream,
+            args_ptrs,
+            None
+        )
+        cudart.cudaStreamSynchronize(self.stream)
 

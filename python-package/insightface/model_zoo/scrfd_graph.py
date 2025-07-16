@@ -6,6 +6,7 @@ import torch
 from torchvision.ops import nms
 
 from ..utils.trthelpers import HostDeviceMem, cuda_call
+from ..utils.preprocess import GpuPreprocessor
 from ..app.common import Face
 
 def distance2bbox(points, distances):
@@ -124,7 +125,7 @@ class SCRFD_TRT_G:
         self.context.set_optimization_profile_async(self.profile_idx, self.stream)
         self.context.set_input_shape(self.input_name, (1, 3, 640, 640))
         self._fixed_blob = np.empty((1, 3, *self.input_size), dtype=np.float32)
-
+        self.gpu_pre = GpuPreprocessor()
         assert self.context.all_binding_shapes_specified
 
         self.inputs, self.outputs, self.bindings = [], [], []
@@ -168,6 +169,16 @@ class SCRFD_TRT_G:
         return padded, scale
         
 
+    def preprocess_batch(self, imgs):
+        bs = len(imgs)
+        blobs = np.empty((bs,3,640,640),dtype=np.float32)
+        for i, img in enumerate(imgs):
+            blob = cv2.dnn.blobFromImage(
+                img, scalefactor=1/128.0, size=self.input_size,
+                mean=(127.5,127.5,127.5), swapRB=True
+            )
+            blobs[i] = blob[0]
+        return blobs
 
     def _preprocess(self, img):
         blob = cv2.dnn.blobFromImage(
@@ -259,13 +270,15 @@ class SCRFD_TRT_G:
                 kps = kpss[i]
             #face = Face(bbox=bbox, kps=kps,det_score=det_score)
             ret.append((bbox,kps,det_score))
-        if len(ret) == 0:
+        if len(ret) == 0 :
             return None
         return ret
     
 
-    def detect_from_gpu(self, scale):
+    def detect_from_gpu(self, raw_ptr,scale):
     # This is like `detect()`, but it skips host->device memcpy
+        self.gpu_pre(raw_ptr, self.inputs[0].device)
+
         if not self.graph_created:
             cudart.cudaStreamBeginCapture(self.stream, cudart.cudaStreamCaptureMode.cudaStreamCaptureModeGlobal)
             self.context.execute_async_v3(stream_handle=self.stream)
@@ -280,6 +293,7 @@ class SCRFD_TRT_G:
 
         cudart.cudaGraphLaunch(self.graph_exec, self.stream)
         cudart.cudaStreamSynchronize(self.stream)
+        print(f"[WORKER] Finished CUDA graph execution",flush=True)
 
         results = [out.host for out in self.outputs]
         input_shape = (self._fixed_blob.shape[2], self._fixed_blob.shape[3])
@@ -290,6 +304,7 @@ class SCRFD_TRT_G:
 
         if bboxes.shape[0] == 0:
             return []
+        print(f"[WORKER] Done postprocess, returning {len(bboxes)} detections",flush=True)
 
         return [(bboxes[i, :4], kpss[i], bboxes[i, 4]) for i in range(bboxes.shape[0])]
 
