@@ -1,27 +1,22 @@
-
-
-# utils/preprocess.py
-from ctypes import c_void_p, byref
-from cuda.bindings import runtime as cudart
 from cuda.bindings.driver import (
     cuInit, cuModuleLoad, cuModuleGetFunction, cuLaunchKernel, cuCtxGetCurrent
 )
+from cuda.bindings.runtime import cudaStreamCreate, cudaStreamSynchronize
 from .trthelpers import cuda_call
+
+from ctypes import c_void_p, POINTER, cast
 import numpy as np
-import os
-from ctypes import POINTER, cast
 
 class GpuPreprocessor:
     def __init__(self, ptx_path="/home/tpv/TPV/repos/beast-emb/full/preprocess.ptx", width=640, height=640):
         cuInit(0)
-        ctx = cuCtxGetCurrent()
+        cuCtxGetCurrent()
         self.width, self.height = width, height
         self.block = (32, 32, 1)
         self.grid = ((width + 31) // 32, (height + 31) // 32, 1)
-        self.stream = cudart.cudaStreamCreate()[1]
+        self.stream = cudaStreamCreate()[1]
 
-        self.module = c_void_p()
-        cuda_call(cuModuleLoad(ptx_path.encode('utf-8')))
+        self.module = cuModuleLoad(ptx_path)  # ✅ FIXED
 
         self.kernel = c_void_p()
         cuda_call(cuModuleGetFunction(byref(self.kernel), self.module, b"preprocess_kernel"))
@@ -33,9 +28,9 @@ class GpuPreprocessor:
             np.int32(self.width),
             np.int32(self.height)
         )
-        
         arg_ptrs = (c_void_p * len(args))(*args)
         arg_ptrs_ptr = cast(arg_ptrs, POINTER(c_void_p))
+
         cuLaunchKernel(
             self.kernel,
             self.grid[0], self.grid[1], self.grid[2],
@@ -44,5 +39,5 @@ class GpuPreprocessor:
             arg_ptrs_ptr,
             None
         )
-        cudart.cudaStreamSynchronize(self.stream)
+        cudaStreamSynchronize(self.stream)
 
