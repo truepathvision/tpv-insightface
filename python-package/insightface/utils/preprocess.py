@@ -6,6 +6,7 @@ from cuda.bindings import runtime as cudart
 from cuda.bindings.driver import (
     cuInit, cuModuleLoad, cuModuleGetFunction, cuLaunchKernel, cuCtxGetCurrent
 )
+from trthelpers import cuda_call
 import numpy as np
 import os
 
@@ -19,10 +20,10 @@ class GpuPreprocessor:
         self.stream = cudart.cudaStreamCreate()[1]
 
         self.module = c_void_p()
-        cudart.check_call(cuModuleLoad(byref(self.module), ptx_path.encode('utf-8')))
+        cuda_call(cuModuleLoad(byref(self.module), ptx_path.encode('utf-8')))
 
         self.kernel = c_void_p()
-        cudart.check_call(cuModuleGetFunction(byref(self.kernel), self.module, b"preprocess_kernel"))
+        cuda_call(cuModuleGetFunction(byref(self.kernel), self.module, b"preprocess_kernel"))
 
     def __call__(self, raw_ptr, blob_ptr):
         args = (
