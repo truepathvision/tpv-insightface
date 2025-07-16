@@ -281,6 +281,8 @@ class SCRFD_TRT_G:
         if raw_ptr == 0:
             print("[SCRFD] ERROR: raw_ptr is NULL", flush=True)
             return [] 
+        else:
+            print(f'[SCRFD] no error on raw_ptr',flush=True)
         img_size = self.input_size[0] * self.input_size[1] * 3  # assuming 640x640x3
         cpu_img = np.empty((self.input_size[1], self.input_size[0], 3), dtype=np.uint8)
         
