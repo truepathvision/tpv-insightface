@@ -126,7 +126,7 @@ class SCRFD_TRT_G:
         self.context.set_input_shape(self.input_name, (1, 3, 640, 640))
         self._fixed_blob = np.empty((1, 3, *self.input_size), dtype=np.float32)
         self.inputs, self.outputs, self.bindings = [], [], []
-        #self.gpu_pre = GpuPreprocessor()
+        self.gpu_pre = GpuPreprocessor()
         assert self.context.all_binding_shapes_specified
 
         #self.inputs, self.outputs, self.bindings = [], [], []
