@@ -182,6 +182,7 @@ class SCRFD_TRT_G:
         return blobs
 
     def _preprocess(self, img):
+        print(f'[PREPROCESS] here?',flush=True)
         blob = cv2.dnn.blobFromImage(
             img, scalefactor=1 / 128.0, size=self.input_size,
             mean=(127.5, 127.5, 127.5), swapRB=True
