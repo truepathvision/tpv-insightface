@@ -1,12 +1,10 @@
+from ctypes import c_void_p, POINTER, cast, byref
 from cuda.bindings.driver import (
     cuInit, cuModuleLoad, cuModuleGetFunction, cuLaunchKernel, cuCtxGetCurrent
 )
 from cuda.bindings.runtime import cudaStreamCreate, cudaStreamSynchronize
 from .trthelpers import cuda_call
-
-from ctypes import c_void_p, POINTER, cast
 import numpy as np
-
 class GpuPreprocessor:
     def __init__(self, ptx_path="/home/tpv/TPV/repos/beast-emb/full/preprocess.ptx", width=640, height=640):
         cuInit(0)
