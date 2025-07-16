@@ -21,9 +21,9 @@ class GpuPreprocessor:
         #cuda_call(cuModuleLoad(byref(self.module), ptx_path.encode("utf-8")))
 
         # This one does need byref() to populate `self.kernel`
-       # self.kernel = cuModuleGetFunction(self.module, b"preprocess_kernel")
-        self.kernel = c_void_p()
-        cuda_call(cuModuleGetFunction(byref(self.kernel), self.module, b"preprocess_kernel"))
+        self.kernel = cuModuleGetFunction(self.module, b"preprocess_kernel")
+        #self.kernel = c_void_p()
+        #cuda_call(cuModuleGetFunction(byref(self.kernel), self.module, b"preprocess_kernel"))
 
     def __call__(self, raw_ptr, blob_ptr):
         args = (
