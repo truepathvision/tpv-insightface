@@ -6,7 +6,7 @@ import torch
 from torchvision.ops import nms
 
 from ..utils.trthelpers import HostDeviceMem, cuda_call
-from ..utils.preprocess import GpuPreprocessor
+#from ..utils.preprocess import GpuPreprocessor
 from ..app.common import Face
 
 def distance2bbox(points, distances):
