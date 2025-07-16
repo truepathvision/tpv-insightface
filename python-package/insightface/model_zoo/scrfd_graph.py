@@ -278,7 +278,7 @@ class SCRFD_TRT_G:
     
 
     def detect_from_gpu(self, scale):
-        print(f"[SCRFD] Begin detect_from_gpu with raw_ptr={raw_ptr}, scale={scale:.4f}", flush=True)
+        #print(f"[SCRFD] Begin detect_from_gpu with raw_ptr={raw_ptr}, scale={scale:.4f}", flush=True)
         """
         if raw_ptr == 0:
             print("[SCRFD] ERROR: raw_ptr is NULL", flush=True)
