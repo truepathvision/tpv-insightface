@@ -264,12 +264,10 @@ class SCRFD_TRT_G:
         return ret
     
 
-    def detect_from_gpu(self, gpu_blob_ptr, scale):
+    def detect_from_gpu(self, scale):
     # This is like `detect()`, but it skips host->device memcpy
         if not self.graph_created:
-        # First time only: build CUDA Graph
             cudart.cudaStreamBeginCapture(self.stream, cudart.cudaStreamCaptureMode.cudaStreamCaptureModeGlobal)
-        # Skip host-to-device
             self.context.execute_async_v3(stream_handle=self.stream)
             for out in self.outputs:
                 cudart.cudaMemcpyAsync(out.host, out.device, out.nbytes,
@@ -280,8 +278,6 @@ class SCRFD_TRT_G:
             self.graph_exec = graph_exec
             self.graph_created = True
 
-    # Replace input pointer with user-provided blob
-        self.inputs[0].device = gpu_blob_ptr
         cudart.cudaGraphLaunch(self.graph_exec, self.stream)
         cudart.cudaStreamSynchronize(self.stream)
 
