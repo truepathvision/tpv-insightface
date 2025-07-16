@@ -16,8 +16,7 @@ class GpuPreprocessor:
 
         self.module = cuModuleLoad(ptx_path.encode("utf-8"))  # ✅ Encode to bytes
 
-        self.kernel = c_void_p()
-        cuda_call(cuModuleGetFunction(byref(self.kernel), self.module, b"preprocess_kernel"))
+        self.kernel = cuModuleGetFunction(self.module, b"preprocess_kernel")
 
 
     def __call__(self, raw_ptr, blob_ptr):
