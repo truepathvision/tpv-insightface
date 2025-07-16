@@ -5,6 +5,7 @@ from cuda.bindings.driver import (
 from cuda.bindings.runtime import cudaStreamCreate, cudaStreamSynchronize
 from .trthelpers import cuda_call
 import numpy as np
+import os
 
 class GpuPreprocessor:
     def __init__(self, ptx_path="/home/tpv/TPV/repos/beast-emb/full/preprocess.ptx", width=640, height=640):
@@ -15,13 +16,13 @@ class GpuPreprocessor:
         self.grid = ((width + 31) // 32, (height + 31) // 32, 1)
         self.stream = cudaStreamCreate()[1]
 
-        # ✅ Correct: cuModuleLoad returns the module directly
-        self.module = cuModuleLoad(ptx_path.encode("utf-8"))
+        # Load module
+        self.module = c_void_p()
+        cuda_call(cuModuleLoad(byref(self.module), ptx_path.encode("utf-8")))
 
-        # ✅ cuModuleGetFunction uses output pointer
-        #self.kernel = c_void_p()
-        #cuda_call(cuModuleGetFunction(byref(self.kernel), self.module, b"preprocess_kernel"))
-        self.kernel = cuModuleGetFunction(self.module, b"preprocess_kernel")
+        # Get kernel function handle
+        self.kernel = c_void_p()
+        cuda_call(cuModuleGetFunction(byref(self.kernel), self.module, b"preprocess_kernel"))
 
     def __call__(self, raw_ptr, blob_ptr):
         args = (
@@ -30,16 +31,20 @@ class GpuPreprocessor:
             np.int32(self.width),
             np.int32(self.height)
         )
-        arg_ptrs = (c_void_p * len(args))(*args)
+        arg_ptrs = (c_void_p * len(args))(*[
+            c_void_p(arg.value if isinstance(arg, c_void_p) else int(arg))
+            for arg in args
+        ])
         arg_ptrs_ptr = cast(arg_ptrs, POINTER(c_void_p))
 
-        cuLaunchKernel(
+        cuda_call(cuLaunchKernel(
             self.kernel,
             self.grid[0], self.grid[1], self.grid[2],
             self.block[0], self.block[1], self.block[2],
             0, self.stream,
             arg_ptrs_ptr,
             None
-        )
-        cudaStreamSynchronize(self.stream)
+        ))
+
+        cuda_call(cudaStreamSynchronize(self.stream))
 
