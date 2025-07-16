@@ -166,6 +166,8 @@ class SCRFD_TRT_G:
         padded = np.zeros((target_h, target_w, 3), dtype=np.uint8)
         padded[:new_h, :new_w, :] = resized
         return padded, scale
+        
+
 
     def _preprocess(self, img):
         blob = cv2.dnn.blobFromImage(
@@ -260,6 +262,40 @@ class SCRFD_TRT_G:
         if len(ret) == 0:
             return None
         return ret
+    
+
+    def detect_from_gpu(self, gpu_blob_ptr, scale):
+    # This is like `detect()`, but it skips host->device memcpy
+        if not self.graph_created:
+        # First time only: build CUDA Graph
+            cudart.cudaStreamBeginCapture(self.stream, cudart.cudaStreamCaptureMode.cudaStreamCaptureModeGlobal)
+        # Skip host-to-device
+            self.context.execute_async_v3(stream_handle=self.stream)
+            for out in self.outputs:
+                cudart.cudaMemcpyAsync(out.host, out.device, out.nbytes,
+                                   cudart.cudaMemcpyKind.cudaMemcpyDeviceToHost, self.stream)
+            graph = cuda_call(cudart.cudaStreamEndCapture(self.stream))
+            graph_exec = cuda_call(cudart.cudaGraphInstantiate(graph, 0))
+            self.graph = graph
+            self.graph_exec = graph_exec
+            self.graph_created = True
+
+    # Replace input pointer with user-provided blob
+        self.inputs[0].device = gpu_blob_ptr
+        cudart.cudaGraphLaunch(self.graph_exec, self.stream)
+        cudart.cudaStreamSynchronize(self.stream)
+
+        results = [out.host for out in self.outputs]
+        input_shape = (self._fixed_blob.shape[2], self._fixed_blob.shape[3])
+        bboxes, kpss = postprocess_trt_outputs(results, input_shape, threshold=self.threshold)
+        bboxes[:, :4] /= scale
+        if kpss is not None:
+            kpss /= scale
+
+        if bboxes.shape[0] == 0:
+            return []
+
+        return [(bboxes[i, :4], kpss[i], bboxes[i, 4]) for i in range(bboxes.shape[0])]
 
     def draw(self, img, dets, kpss, color=(0, 255, 0), landmark_color=(0, 0, 255)):
         img_drawn = img.copy()
