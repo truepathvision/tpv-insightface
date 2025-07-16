@@ -318,7 +318,6 @@ class SCRFD_TRT_G:
 
         cudart.cudaGraphLaunch(self.graph_exec, self.stream)
         cudart.cudaStreamSynchronize(self.stream)
-        print(f"[WORKER] Finished CUDA graph execution",flush=True)
 
         results = [out.host for out in self.outputs]
         input_shape = (self._fixed_blob.shape[2], self._fixed_blob.shape[3])
@@ -329,7 +328,6 @@ class SCRFD_TRT_G:
 
         if bboxes.shape[0] == 0:
             return []
-        print(f"[WORKER] Done postprocess, returning {len(bboxes)} detections",flush=True)
 
         return [(bboxes[i, :4], kpss[i], bboxes[i, 4]) for i in range(bboxes.shape[0])]
 
