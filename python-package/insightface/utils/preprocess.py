@@ -21,7 +21,7 @@ class GpuPreprocessor:
         self.stream = cudart.cudaStreamCreate()[1]
 
         self.module = c_void_p()
-        cuda_call(cuModuleLoad(byref(self.module), ptx_path.encode('utf-8')))
+        cuda_call(cuModuleLoad(ptx_path.encode('utf-8')))
 
         self.kernel = c_void_p()
         cuda_call(cuModuleGetFunction(byref(self.kernel), self.module, b"preprocess_kernel"))
