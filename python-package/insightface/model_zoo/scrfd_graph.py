@@ -277,6 +277,8 @@ class SCRFD_TRT_G:
     
 
     def detect_from_gpu(self, raw_ptr,scale):
+        print(f"[SCRFD] Begin detect_from_gpu with raw_ptr={raw_ptr}, scale={scale:.4f}", flush=True)
+
         img_size = self.input_size[0] * self.input_size[1] * 3  # assuming 640x640x3
         cpu_img = np.empty((self.input_size[1], self.input_size[0], 3), dtype=np.uint8)
         cuda_call(cudart.cudaMemcpy(
