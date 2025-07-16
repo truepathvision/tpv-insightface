@@ -5,6 +5,7 @@ from cuda.bindings.driver import (
 from cuda.bindings.runtime import cudaStreamCreate, cudaStreamSynchronize
 from .trthelpers import cuda_call
 import numpy as np
+
 class GpuPreprocessor:
     def __init__(self, ptx_path="/home/tpv/TPV/repos/beast-emb/full/preprocess.ptx", width=640, height=640):
         cuInit(0)
@@ -14,10 +15,11 @@ class GpuPreprocessor:
         self.grid = ((width + 31) // 32, (height + 31) // 32, 1)
         self.stream = cudaStreamCreate()[1]
 
-        self.module = cuModuleLoad(ptx_path.encode("utf-8"))  # ✅ Encode to bytes
+        self.module = c_void_p()
+        cuda_call(cuModuleLoad(byref(self.module), ptx_path.encode("utf-8")))
 
-        self.kernel = cuModuleGetFunction(self.module, b"preprocess_kernel")
-
+        self.kernel = c_void_p()
+        cuda_call(cuModuleGetFunction(byref(self.kernel), self.module, b"preprocess_kernel"))
 
     def __call__(self, raw_ptr, blob_ptr):
         args = (
@@ -38,4 +40,6 @@ class GpuPreprocessor:
             None
         )
         cudaStreamSynchronize(self.stream)
+
+
 
