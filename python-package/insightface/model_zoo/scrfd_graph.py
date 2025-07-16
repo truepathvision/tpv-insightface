@@ -278,13 +278,24 @@ class SCRFD_TRT_G:
 
     def detect_from_gpu(self, raw_ptr,scale):
         print(f"[SCRFD] Begin detect_from_gpu with raw_ptr={raw_ptr}, scale={scale:.4f}", flush=True)
-
+        if raw_ptr == 0:
+            print("[SCRFD] ERROR: raw_ptr is NULL", flush=True)
+            return [] 
         img_size = self.input_size[0] * self.input_size[1] * 3  # assuming 640x640x3
         cpu_img = np.empty((self.input_size[1], self.input_size[0], 3), dtype=np.uint8)
-        cuda_call(cudart.cudaMemcpy(
-            cpu_img.ctypes.data, raw_ptr,
-            img_size, cudart.cudaMemcpyKind.cudaMemcpyDeviceToHost
-        ))
+        
+        print(f"[SCRFD] Attempting to copy {img_size} bytes from raw_ptr={raw_ptr}", flush=True)
+
+        try:
+            cuda_call(cudart.cudaMemcpy(
+                cpu_img.ctypes.data, raw_ptr,
+                img_size, cudart.cudaMemcpyKind.cudaMemcpyDeviceToHost
+            ))
+            print(f'[SCRFD] worked for cuda call')
+        except Exception as e:
+            print(f"[SCRFD] cudaMemcpy failed: {e}", flush=True)
+            import traceback; traceback.print_exc()
+            return []
 
         self._preprocess(cpu_img)
 
