@@ -105,6 +105,8 @@ def nms_bad(dets, iou_threshold=0.4):
 """
 class SCRFD_TRT_G:
     def __init__(self, engine_path, input_size=(640, 640), threshold=0.5, nms_thresh=0.4):
+        print("[SCRFD INIT] Model initialized", flush=True)
+
         self.engine_path = engine_path
         self.input_size = input_size
         self.threshold = threshold
