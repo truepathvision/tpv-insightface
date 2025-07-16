@@ -219,9 +219,9 @@ class SCRFD_TRT_G:
         self.context = None
         self.engine = None
 
-    def detect(self, img, scale,preprocess=False):
-        if preprocess: 
-            self._preprocess(img)
+    def detect(self, img, scale):#,preprocess=False):
+        print(f'[SCRFD] DID WE GET HERE',flush=True)
+        self._preprocess(img)
         #np.copyto(self._fixed_blob, blob)
         self.inputs[0].host = self._fixed_blob
         if not self.graph_created:
