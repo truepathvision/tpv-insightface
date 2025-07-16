@@ -276,8 +276,9 @@ class SCRFD_TRT_G:
         return ret
     
 
-    def detect_from_gpu(self, raw_ptr,scale):
+    def detect_from_gpu(self, img,scale):
         print(f"[SCRFD] Begin detect_from_gpu with raw_ptr={raw_ptr}, scale={scale:.4f}", flush=True)
+        """
         if raw_ptr == 0:
             print("[SCRFD] ERROR: raw_ptr is NULL", flush=True)
             return [] 
@@ -300,6 +301,7 @@ class SCRFD_TRT_G:
             return []
 
         self._preprocess(cpu_img)
+        """
 
         if not self.graph_created:
             cudart.cudaStreamBeginCapture(self.stream, cudart.cudaStreamCaptureMode.cudaStreamCaptureModeGlobal)
