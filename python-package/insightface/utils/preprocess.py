@@ -15,11 +15,10 @@ class GpuPreprocessor:
         self.grid = ((width + 31) // 32, (height + 31) // 32, 1)
         self.stream = cudaStreamCreate()[1]
 
-        # Correct way: module as output argument
-        self.module = c_void_p()
-        cuda_call(cuModuleLoad(byref(self.module), ptx_path.encode("utf-8")))
+        # ✅ Correct: cuModuleLoad returns the module directly
+        self.module = cuModuleLoad(ptx_path.encode("utf-8"))
 
-        # Correct way: kernel as output argument
+        # ✅ cuModuleGetFunction uses output pointer
         self.kernel = c_void_p()
         cuda_call(cuModuleGetFunction(byref(self.kernel), self.module, b"preprocess_kernel"))
 
@@ -42,5 +41,4 @@ class GpuPreprocessor:
             None
         )
         cudaStreamSynchronize(self.stream)
-
 
