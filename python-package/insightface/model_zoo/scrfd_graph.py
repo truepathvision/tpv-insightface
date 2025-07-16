@@ -126,7 +126,7 @@ class SCRFD_TRT_G:
         self.context.set_input_shape(self.input_name, (1, 3, 640, 640))
         self._fixed_blob = np.empty((1, 3, *self.input_size), dtype=np.float32)
         self.inputs, self.outputs, self.bindings = [], [], []
-        self.gpu_pre = GpuPreprocessor()
+        #self.gpu_pre = GpuPreprocessor()
         assert self.context.all_binding_shapes_specified
 
         #self.inputs, self.outputs, self.bindings = [], [], []
@@ -277,8 +277,14 @@ class SCRFD_TRT_G:
     
 
     def detect_from_gpu(self, raw_ptr,scale):
-    # This is like `detect()`, but it skips host->device memcpy
-        self.gpu_pre(raw_ptr, self.inputs[0].device)
+        img_size = self.input_size[0] * self.input_size[1] * 3  # assuming 640x640x3
+        cpu_img = np.empty((self.input_size[1], self.input_size[0], 3), dtype=np.uint8)
+        cuda_call(cudart.cudaMemcpy(
+            cpu_img.ctypes.data, raw_ptr,
+            img_size, cudart.cudaMemcpyKind.cudaMemcpyDeviceToHost
+        ))
+
+        self._preprocess(cpu_img)
 
         if not self.graph_created:
             cudart.cudaStreamBeginCapture(self.stream, cudart.cudaStreamCaptureMode.cudaStreamCaptureModeGlobal)
