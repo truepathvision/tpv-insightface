@@ -6,9 +6,10 @@ from cuda.bindings import runtime as cudart
 from cuda.bindings.driver import (
     cuInit, cuModuleLoad, cuModuleGetFunction, cuLaunchKernel, cuCtxGetCurrent
 )
-from trthelpers import cuda_call
+from .trthelpers import cuda_call
 import numpy as np
 import os
+from ctypes import POINTER, cast
 
 class GpuPreprocessor:
     def __init__(self, ptx_path="/home/tpv/TPV/repos/beast-emb/full/preprocess.ptx", width=640, height=640):
@@ -32,16 +33,15 @@ class GpuPreprocessor:
             np.int32(self.width),
             np.int32(self.height)
         )
-        args_ptrs = (c_void_p * len(args))(*[
-            c_void_p(id(arg)) if isinstance(arg, c_void_p) else byref(arg) for arg in args
-        ])
-
+        
+        arg_ptrs = (c_void_p * len(args))(*args)
+        arg_ptrs_ptr = cast(arg_ptrs, POINTER(c_void_p))
         cuLaunchKernel(
             self.kernel,
             self.grid[0], self.grid[1], self.grid[2],
             self.block[0], self.block[1], self.block[2],
             0, self.stream,
-            args_ptrs,
+            arg_ptrs_ptr,
             None
         )
         cudart.cudaStreamSynchronize(self.stream)
